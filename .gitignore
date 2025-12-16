@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files (must not commit)
+.env
+.env.*
+!.env.example
+
+# Local runtime dirs (must be ignored)
+models/
+data/
+logs/
+
+# Node / frontend
+node_modules/
+.turbo/
+.next/
+out/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
