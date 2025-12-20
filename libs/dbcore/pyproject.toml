@@ -1,9 +1,13 @@
 [project]
-name = "py_core"
+name = "db_core"
 version = "0.1.0"
-description = "Shared python core utilities for Turbo-Super-Novel"
+description = "Shared database utilities for Turbo-Super-Novel"
 requires-python = ">=3.12,<3.14"
-dependencies = []
+dependencies = [
+  "sqlalchemy>=2.0",
+  "psycopg[binary]>=3.2",
+  "py_core",
+]
 
 [dependency-groups]
 dev = [
@@ -17,3 +21,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/libs"]
+

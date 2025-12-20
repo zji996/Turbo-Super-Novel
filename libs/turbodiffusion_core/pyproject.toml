@@ -1,9 +1,11 @@
 [project]
-name = "py_core"
+name = "td_core"
 version = "0.1.0"
-description = "Shared python core utilities for Turbo-Super-Novel"
+description = "Shared TurboDiffusion integration utilities for Turbo-Super-Novel"
 requires-python = ">=3.12,<3.14"
-dependencies = []
+dependencies = [
+  "py_core",
+]
 
 [dependency-groups]
 dev = [

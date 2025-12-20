@@ -1,0 +1,3 @@
+[submodule "third_party/TurboDiffusion"]
+	path = third_party/TurboDiffusion
+	url = https://github.com/thu-ml/TurboDiffusion

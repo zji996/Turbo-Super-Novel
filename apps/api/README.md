@@ -1,6 +1,6 @@
 # apps/api
 
-FastAPI 服务（示例骨架）。
+FastAPI 服务（提交 TurboDiffusion 任务 / 查询结果）。
 
 ## Run
 
@@ -10,6 +10,11 @@ FastAPI 服务（示例骨架）。
 uv sync --project apps/api
 uv run --project apps/api --directory apps/api uvicorn main:app --reload
 ```
+
+依赖：
+
+- Redis：Celery broker/result backend
+- MinIO/S3：输入图片与输出视频存储
 
 ## Test
 
