@@ -5,7 +5,7 @@ services:
       - "6379:6379"
 
   postgres:
-    image: postgres:18
+    image: postgres:17
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
