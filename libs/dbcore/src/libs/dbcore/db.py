@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from contextlib import contextmanager
 from functools import lru_cache
 from typing import Iterator
@@ -8,6 +9,8 @@ from typing import Iterator
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+
+from .models import TurboDiffusionJob
 
 
 def database_url() -> str:
@@ -42,3 +45,37 @@ def create_all() -> None:
 
     Base.metadata.create_all(bind=engine())
 
+
+def try_insert_job(job: TurboDiffusionJob) -> tuple[bool, str | None]:
+    try:
+        with session_scope() as session:
+            session.add(job)
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+def try_update_job(
+    job_id: str | uuid.UUID,
+    *,
+    status: str | None = None,
+    error: str | None = None,
+    result: dict | None = None,
+) -> tuple[bool, str | None]:
+    try:
+        job_uuid = job_id if isinstance(job_id, uuid.UUID) else uuid.UUID(str(job_id))
+    except Exception as exc:
+        return False, f"invalid job_id: {exc}"
+
+    try:
+        with session_scope() as session:
+            row = session.get(TurboDiffusionJob, job_uuid)
+            if row is None:
+                return False, "job not found"
+            if status is not None:
+                row.status = status
+            row.error = error
+            row.result = result
+        return True, None
+    except Exception as exc:
+        return False, str(exc)

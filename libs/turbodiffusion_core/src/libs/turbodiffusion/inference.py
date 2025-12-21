@@ -24,7 +24,7 @@ def run_wan22_i2v(
     model_paths: Wan22I2VModelPaths,
     num_steps: int = 4,
     seed: int = 0,
-    attention_type: str = "original",
+    attention_type: str = "sla",
     sla_topk: float = 0.1,
     resolution: str = "720p",
     aspect_ratio: str = "16:9",

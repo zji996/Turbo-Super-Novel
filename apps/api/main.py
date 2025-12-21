@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import uuid
 from uuid import uuid4
@@ -8,7 +9,7 @@ from celery.result import AsyncResult
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from libs.pycore.paths import paths_summary
-from libs.dbcore import TurboDiffusionJob, session_scope
+from libs.dbcore import TurboDiffusionJob, session_scope, try_insert_job, try_update_job
 from libs.turbodiffusion.registry import list_artifacts
 from libs.turbodiffusion.paths import turbodiffusion_models_root, wan22_i2v_model_paths
 
@@ -16,6 +17,8 @@ from celery_app import celery_app
 from s3 import ensure_bucket_exists, s3_bucket_name, s3_client
 
 app = FastAPI(title="Turbo-Super-Novel API", version="0.1.0")
+logger = logging.getLogger(__name__)
+
 
 @app.get("/health")
 def health() -> dict:
@@ -78,46 +81,61 @@ async def create_wan22_i2v_job(
         ExtraArgs={"ContentType": image.content_type or "application/octet-stream"},
     )
 
-    celery_app.send_task(
-        "turbodiffusion.wan22_i2v.generate",
-        task_id=job_id,
-        kwargs={
-            "job_id": job_id,
-            "input_bucket": bucket,
-            "input_key": input_key,
-            "output_bucket": bucket,
-            "output_key": output_key,
-            "prompt": prompt,
-            "seed": int(seed),
-            "num_steps": int(num_steps),
-            "quantized": bool(quantized),
-        },
+    db_persisted = False
+    db_error: str | None = None
+    ok, err = try_insert_job(
+        TurboDiffusionJob(
+            id=job_uuid,
+            status="CREATED",
+            prompt=prompt,
+            seed=int(seed),
+            num_steps=int(num_steps),
+            quantized=bool(quantized),
+            input_bucket=bucket,
+            input_key=input_key,
+            output_bucket=bucket,
+            output_key=output_key,
+        )
     )
+    if ok:
+        db_persisted = True
+    else:
+        db_error = err
+        logger.error("Failed to persist job to DB: %s (%s)", job_id, db_error)
 
     try:
-        with session_scope() as session:
-            session.add(
-                TurboDiffusionJob(
-                    id=job_uuid,
-                    status="SUBMITTED",
-                    prompt=prompt,
-                    seed=int(seed),
-                    num_steps=int(num_steps),
-                    quantized=bool(quantized),
-                    input_bucket=bucket,
-                    input_key=input_key,
-                    output_bucket=bucket,
-                    output_key=output_key,
-                )
-            )
-    except Exception:
-        pass
+        celery_app.send_task(
+            "turbodiffusion.wan22_i2v.generate",
+            task_id=job_id,
+            kwargs={
+                "job_id": job_id,
+                "input_bucket": bucket,
+                "input_key": input_key,
+                "output_bucket": bucket,
+                "output_key": output_key,
+                "prompt": prompt,
+                "seed": int(seed),
+                "num_steps": int(num_steps),
+                "quantized": bool(quantized),
+            },
+        )
+    except Exception as exc:
+        if db_persisted:
+            try_update_job(job_uuid, status="SUBMIT_FAILED", error=str(exc), result=None)
+        raise HTTPException(status_code=500, detail=f"Failed to submit Celery task: {exc}") from exc
+
+    if db_persisted:
+        ok, err = try_update_job(job_uuid, status="SUBMITTED", error=None, result=None)
+        if not ok:
+            db_error = err
+            logger.error("Failed to update job status to SUBMITTED: %s (%s)", job_id, db_error)
 
     return {
         "job_id": job_id,
         "status": "submitted",
         "input": {"bucket": bucket, "key": input_key},
         "output": {"bucket": bucket, "key": output_key},
+        "db": {"persisted": db_persisted, "error": db_error},
     }
 
 
@@ -138,8 +156,8 @@ def get_job(job_id: str) -> dict:
                     "updated_at": row.updated_at.isoformat() if row.updated_at else None,
                     "error": row.error,
                 }
-    except Exception:
-        pass
+    except Exception as exc:
+        payload["db_error"] = str(exc)
 
     if result.successful():
         try:

@@ -14,3 +14,8 @@ Monorepo 结构遵循 `AGENTS.md` 约定：
 
 - API：`uv run --project apps/api --directory apps/api uvicorn main:app --reload`
 - Worker：`uv run --project apps/worker --directory apps/worker python main.py`
+
+文档：
+
+- I2V 跑通手册：`docs/turbodiffusion_i2v_runbook.md`
+- 前端（仅 I2V）说明：`docs/frontend_i2v_spec.md`

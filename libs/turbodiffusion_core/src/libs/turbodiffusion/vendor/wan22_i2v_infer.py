@@ -85,7 +85,10 @@ def generate_wan22_i2v(
         os.environ["HF_HOME"] = str((data_dir() / "hf").resolve())
 
     log.info(f"Computing embedding for prompt: {prompt}")
-    text_emb = get_umt5_embedding(checkpoint_path=str(text_encoder_path), prompts=prompt).to(**tensor_kwargs)
+    umt5_device = os.getenv("TD_UMT5_DEVICE", "cpu")
+    text_emb = get_umt5_embedding(checkpoint_path=str(text_encoder_path), prompts=prompt, device=umt5_device).to(
+        **tensor_kwargs
+    )
     clear_umt5_memory()
 
     args = argparse.Namespace(
@@ -203,7 +206,7 @@ def generate_wan22_i2v(
     to_show = (1.0 + video.float().cpu().clamp(-1, 1)) / 2.0
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_image_or_video(rearrange(to_show, "b c t h w -> c t h w"), str(save_path), fps=16)
+    save_image_or_video(to_show[0], str(save_path), fps=16)
 
     return save_path
 

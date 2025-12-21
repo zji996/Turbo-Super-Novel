@@ -30,3 +30,24 @@ uv run --project apps/worker scripts/smoke_turbodiffusion_i2v.py --input-index 0
 ```bash
 uv run --project apps/api scripts/init_db.py
 ```
+
+## 一键启动/停止（非 Docker）
+
+日志会写入 `logs/`（仅 `.log` 文件）；PID 文件写入 `data/tsn_runtime/pids/`（用于按仓库路径停止）。
+
+```bash
+# 一键启动 API + Worker
+bash scripts/tsn_up.sh
+
+# 一键停止 API + Worker
+bash scripts/tsn_down.sh
+
+# 单独启动/停止
+bash scripts/tsn_api_start.sh
+bash scripts/tsn_api_stop.sh
+bash scripts/tsn_worker_start.sh
+bash scripts/tsn_worker_stop.sh
+
+# 查看状态
+bash scripts/tsn_manage.sh status
+```
