@@ -89,7 +89,7 @@ uv run --project apps/worker --directory apps/worker \
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export TOKENIZERS_PARALLELISM=false
 
-uv run --project apps/worker --directory apps/worker \
+uv run --project apps/worker \
   python scripts/smoke_turbodiffusion_i2v.py \
     --inputs-dir third_party/TurboDiffusion/assets/i2v_inputs \
     --input-index 0 --prompt-index 0 --num-steps 1
@@ -97,7 +97,7 @@ uv run --project apps/worker --directory apps/worker \
 
 补充：
 
-- umT5 文本编码默认走 CPU（避免 GPU 显存峰值），可用 `TD_UMT5_DEVICE=cuda` 强制上 GPU（不建议在 32GB 显存机器上开启）。
+- umT5 文本编码默认走 CUDA（更快）；如果显存紧张可设置 `TD_UMT5_DEVICE=cpu`。
 
 ## 5. 启动服务（API + Worker + 基础设施）
 
@@ -135,4 +135,3 @@ CELERY_CONCURRENCY=1 bash scripts/tsn_up.sh
 
 - `GET /v1/turbodiffusion/jobs/{job_id}`
 - 成功时返回 `output_url`（1h 有效的 presigned URL，可直接给前端播放/下载）
-

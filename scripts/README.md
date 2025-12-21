@@ -13,6 +13,7 @@ uv run --project apps/api scripts/example.py
 借用 `apps/api` 环境运行（需要先 `uv sync --project apps/api`）：
 
 ```bash
+cp .env.example .env
 uv run --project apps/api scripts/download_turbodiffusion_models.py --model TurboWan2.2-I2V-A14B-720P --quantized
 ```
 
@@ -21,6 +22,7 @@ uv run --project apps/api scripts/download_turbodiffusion_models.py --model Turb
 借用 `apps/worker` 环境运行（需要 GPU）：
 
 ```bash
+cp .env.example .env
 uv sync --project apps/worker -p python3.12
 uv run --project apps/worker scripts/smoke_turbodiffusion_i2v.py --input-index 0 --prompt-index 0
 ```

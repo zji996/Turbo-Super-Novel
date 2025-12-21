@@ -44,68 +44,6 @@ def _state_dict_uses_int8_linear(state_dict: dict[str, object]) -> bool:
     return False
 
 
-def _dequantize_int8_linear_state_dict(
-    state_dict: dict[str, object],
-    *,
-    dtype: torch.dtype,
-    block_size: int = 128,
-) -> dict[str, object]:
-    """
-    Convert TurboDiffusion int8-linear checkpoints into standard `nn.Linear` weights.
-
-    This is a dev fallback when `turbo_diffusion_ops` isn't available (e.g., CUDA toolkit mismatch),
-    allowing smoke tests to run without compiling custom CUDA extensions.
-    """
-
-    def dequantize_weight(int8_weight: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
-        if int8_weight.dtype != torch.int8:
-            raise TypeError(f"Expected int8_weight dtype=int8, got {int8_weight.dtype}")
-        if scale.dtype not in (torch.float16, torch.bfloat16, torch.float32):
-            raise TypeError(f"Expected scale dtype=float, got {scale.dtype}")
-        if int8_weight.ndim != 2 or scale.ndim != 2:
-            raise ValueError("Expected int8_weight and scale to be 2D tensors")
-
-        out_features, in_features = int8_weight.shape
-        row_blocks, col_blocks = scale.shape
-        if out_features != row_blocks * block_size or in_features != col_blocks * block_size:
-            raise ValueError(
-                "Unexpected int8 Linear shapes: "
-                f"int8_weight={tuple(int8_weight.shape)} scale={tuple(scale.shape)} block_size={block_size}"
-            )
-
-        weight = int8_weight.reshape(row_blocks, block_size, col_blocks, block_size).to(torch.float16)
-        scale_f16 = scale.to(torch.float16).reshape(row_blocks, 1, col_blocks, 1)
-        return (weight * scale_f16).reshape(out_features, in_features).to(dtype)
-
-    prefixes: list[str] = []
-    for key in state_dict:
-        if isinstance(key, str) and key.endswith(".int8_weight"):
-            prefixes.append(key[: -len(".int8_weight")])
-
-    drop_keys: set[str] = set()
-    for prefix in prefixes:
-        drop_keys.add(f"{prefix}.int8_weight")
-        drop_keys.add(f"{prefix}.scale")
-        drop_keys.add(f"{prefix}.bias")
-
-    new_state_dict: dict[str, object] = {
-        key: value for key, value in state_dict.items() if isinstance(key, str) and key not in drop_keys
-    }
-
-    for prefix in prefixes:
-        int8_weight = state_dict.get(f"{prefix}.int8_weight")
-        scale = state_dict.get(f"{prefix}.scale")
-        bias = state_dict.get(f"{prefix}.bias")
-        if not isinstance(int8_weight, torch.Tensor) or not isinstance(scale, torch.Tensor):
-            raise KeyError(f"Missing tensors for quantized linear: {prefix}")
-
-        new_state_dict[f"{prefix}.weight"] = dequantize_weight(int8_weight, scale)
-        if isinstance(bias, torch.Tensor):
-            new_state_dict[f"{prefix}.bias"] = bias.to(dtype)
-
-    return new_state_dict
-
-
 def select_model(model_name: str) -> torch.nn.Module:
     if model_name != "Wan2.2-A14B":
         raise ValueError(f"Unsupported model name: {model_name}")
@@ -276,18 +214,13 @@ def create_model(dit_path: str, args: argparse.Namespace) -> torch.nn.Module:
         try:
             import turbo_diffusion_ops  # noqa: F401
         except Exception:
-            if os.getenv("TD_DEQUANT_INT8_FALLBACK") in {"1", "true", "TRUE", "yes", "YES"}:
-                state_dict = _dequantize_int8_linear_state_dict(state_dict, dtype=tensor_kwargs["dtype"])
-            else:
-                raise RuntimeError(
-                    "Quantized TurboDiffusion checkpoint detected (int8 Linear), but `turbo_diffusion_ops` "
-                    "is not available. This typically happens when the local CUDA toolkit `nvcc` major version "
-                    "doesn't match PyTorch's CUDA version (e.g., nvcc 13.x with torch +cu128). "
-                    "Fix options: (1) install CUDA 12.8 toolkit and rebuild TurboDiffusion ops; "
-                    "(2) use non-quantized checkpoints on a >40GB GPU. "
-                    "If you still want a dev fallback that dequantizes to bf16 (may OOM on 32GB GPUs), "
-                    "set TD_DEQUANT_INT8_FALLBACK=1."
-                )
+            raise RuntimeError(
+                "Quantized TurboDiffusion checkpoint detected (int8 Linear), but `turbo_diffusion_ops` "
+                "is not available. This typically happens when the local CUDA toolkit `nvcc` major version "
+                "doesn't match PyTorch's CUDA version (e.g., nvcc 13.x with torch +cu128). "
+                "Fix: install a matching CUDA toolkit (see docs/turbodiffusion_i2v_runbook.md) and rebuild "
+                "TurboDiffusion ops."
+            )
         else:
             net = _replace_linear_with_int8(model=net)
 

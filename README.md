@@ -17,5 +17,6 @@ Monorepo 结构遵循 `AGENTS.md` 约定：
 
 文档：
 
+- Quickstart：`docs/quickstart.md`
 - I2V 跑通手册：`docs/turbodiffusion_i2v_runbook.md`
 - 前端（仅 I2V）说明：`docs/frontend_i2v_spec.md`

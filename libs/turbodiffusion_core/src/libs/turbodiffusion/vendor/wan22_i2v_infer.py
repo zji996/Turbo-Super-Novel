@@ -85,11 +85,13 @@ def generate_wan22_i2v(
         os.environ["HF_HOME"] = str((data_dir() / "hf").resolve())
 
     log.info(f"Computing embedding for prompt: {prompt}")
-    umt5_device = os.getenv("TD_UMT5_DEVICE", "cpu")
+    umt5_device = os.getenv("TD_UMT5_DEVICE", "cuda")
     text_emb = get_umt5_embedding(checkpoint_path=str(text_encoder_path), prompts=prompt, device=umt5_device).to(
         **tensor_kwargs
     )
     clear_umt5_memory()
+    if str(umt5_device).startswith("cuda"):
+        torch.cuda.empty_cache()
 
     args = argparse.Namespace(
         model="Wan2.2-A14B",

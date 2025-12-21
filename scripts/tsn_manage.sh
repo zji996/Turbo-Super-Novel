@@ -67,8 +67,8 @@ load_env() {
   if [[ -z "$env_file" ]]; then
     if [[ -f "$REPO_ROOT/.env" ]]; then
       env_file="$REPO_ROOT/.env"
-    elif [[ -f "$REPO_ROOT/apps/$service/.env" ]]; then
-      env_file="$REPO_ROOT/apps/$service/.env"
+    elif [[ -f "$REPO_ROOT/.env.example" ]]; then
+      env_file="$REPO_ROOT/.env.example"
     else
       env_file="$REPO_ROOT/apps/$service/env.example"
     fi
@@ -220,7 +220,7 @@ Usage:
   scripts/tsn_manage.sh status
 
 Env:
-  TSN_ENV_FILE=...        Optional env file to source (default: .env or apps/<svc>/.env or env.example)
+  TSN_ENV_FILE=...        Optional env file to source (default: .env, else .env.example)
   TSN_SKIP_SYNC=1         Skip `uv sync` checks
   LOG_DIR=...             Log directory (default: ./logs)
   DATA_DIR=...            Data directory for pidfiles (default: ./data)

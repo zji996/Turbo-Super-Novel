@@ -6,3 +6,4 @@
 
 - `docs/turbodiffusion_i2v_runbook.md`：安装 CUDA 12.8 toolkit（免 sudo）并编译 `turbo_diffusion_ops`、以及 I2V smoke test/服务启动说明
 - `docs/frontend_i2v_spec.md`：仅图生视频（I2V）模式下的前端页面与 API 对接规范
+- `docs/quickstart.md`：快速开始（本机托管 `TurboWan2.2-I2V-A14B-720P`）

@@ -7,8 +7,14 @@
 在 repo_root 执行：
 
 ```bash
+cp .env.example .env
 uv sync --project apps/worker
 uv run --project apps/worker --directory apps/worker celery -A celery_app:celery_app worker -l info
+```
+
+推荐（单一入口，自动加载 `.env` 并同时启动 API+Worker）：
+```bash
+bash scripts/tsn_up.sh
 ```
 
 GPU/FlashAttention（可选）：
