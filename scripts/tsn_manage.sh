@@ -8,6 +8,7 @@ DATA_DIR="${DATA_DIR:-$REPO_ROOT/data}"
 PID_DIR="${PID_DIR:-$DATA_DIR/tsn_runtime/pids}"
 
 UV_BIN="${UV_BIN:-}"
+PNPM_BIN="${PNPM_BIN:-}"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -41,6 +42,34 @@ resolve_uv() {
 
   echo "missing command: uv" >&2
   echo "hint: uv is installed at ~/.local/bin/uv; avoid running with sudo, or set UV_BIN=/path/to/uv" >&2
+  exit 127
+}
+
+resolve_pnpm() {
+  if [[ -n "$PNPM_BIN" ]]; then
+    return 0
+  fi
+  if command -v pnpm >/dev/null 2>&1; then
+    PNPM_BIN="$(command -v pnpm)"
+    return 0
+  fi
+
+  local candidates=()
+  candidates+=("$HOME/.local/share/pnpm/pnpm" "$HOME/.npm-global/bin/pnpm" "/usr/local/bin/pnpm" "/usr/bin/pnpm")
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    candidates+=("/home/$SUDO_USER/.local/share/pnpm/pnpm")
+  fi
+
+  local cand
+  for cand in "${candidates[@]}"; do
+    if [[ -x "$cand" ]]; then
+      PNPM_BIN="$cand"
+      return 0
+    fi
+  done
+
+  echo "missing command: pnpm" >&2
+  echo "hint: install pnpm with 'npm install -g pnpm' or set PNPM_BIN=/path/to/pnpm" >&2
   exit 127
 }
 
@@ -211,12 +240,28 @@ worker_cmd() {
   echo "\"$UV_BIN\" run --project apps/worker --directory apps/worker celery -A celery_app:celery_app worker -l ${CELERY_LOG_LEVEL:-info} --concurrency ${concurrency} --prefetch-multiplier ${prefetch}"
 }
 
+web_cmd() {
+  local port="${WEB_PORT:-5173}"
+  echo "cd \"$REPO_ROOT/apps/web\" && \"$PNPM_BIN\" dev --port $port"
+}
+
+maybe_pnpm_install() {
+  local project_dir="$1"
+  if [[ "${TSN_SKIP_SYNC:-0}" == "1" ]]; then
+    return 0
+  fi
+  if [[ -d "$REPO_ROOT/$project_dir/node_modules" ]]; then
+    return 0
+  fi
+  (cd "$REPO_ROOT/$project_dir" && "$PNPM_BIN" install)
+}
+
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/tsn_manage.sh start  [api|worker|all]
-  scripts/tsn_manage.sh stop   [api|worker|all]
-  scripts/tsn_manage.sh restart [api|worker|all]
+  scripts/tsn_manage.sh start  [api|worker|web|all]
+  scripts/tsn_manage.sh stop   [api|worker|web|all]
+  scripts/tsn_manage.sh restart [api|worker|web|all]
   scripts/tsn_manage.sh status
 
 Env:
@@ -234,12 +279,16 @@ Worker:
   CELERY_LOG_LEVEL=info
   CELERY_CONCURRENCY=5
   CELERY_PREFETCH_MULTIPLIER=1
+
+Web (Frontend):
+  WEB_PORT=5173
 EOF
 }
 
 main() {
   require_cmd setsid
   resolve_uv
+  resolve_pnpm
 
   if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" && "${TSN_ALLOW_SUDO:-0}" != "1" ]]; then
     echo "This script should not run as root; re-running as $SUDO_USER." >&2
@@ -271,6 +320,12 @@ main() {
           load_env worker
           maybe_uv_sync apps/worker
           start_service "worker" "$LOG_DIR/worker.log" "$(worker_cmd)"
+          maybe_pnpm_install apps/web
+          start_service "web" "$LOG_DIR/web.log" "$(web_cmd)"
+          ;;
+        web)
+          maybe_pnpm_install apps/web
+          start_service "web" "$LOG_DIR/web.log" "$(web_cmd)"
           ;;
         *)
           usage
@@ -282,7 +337,9 @@ main() {
       case "$target" in
         api) stop_service "api" ;;
         worker) stop_service "worker" ;;
+        web) stop_service "web" ;;
         all)
+          stop_service "web"
           stop_service "worker"
           stop_service "api"
           ;;
@@ -299,6 +356,7 @@ main() {
     status)
       status_service "api"
       status_service "worker"
+      status_service "web"
       ;;
     *)
       usage

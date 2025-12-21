@@ -9,7 +9,7 @@ from celery.result import AsyncResult
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from libs.pycore.paths import paths_summary
-from libs.dbcore import TurboDiffusionJob, session_scope, try_insert_job, try_update_job
+from libs.dbcore import TurboDiffusionJob, ensure_schema, session_scope, try_insert_job, try_update_job
 from libs.turbodiffusion.registry import list_artifacts
 from libs.turbodiffusion.paths import turbodiffusion_models_root, wan22_i2v_model_paths
 
@@ -145,6 +145,7 @@ def get_job(job_id: str) -> dict:
     payload: dict = {"job_id": job_id, "status": result.status}
 
     try:
+        ensure_schema()
         with session_scope() as session:
             row = session.get(TurboDiffusionJob, uuid.UUID(job_id))
             if row is not None:

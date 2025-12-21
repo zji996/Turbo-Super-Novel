@@ -42,8 +42,9 @@ def _s3_client():
 
 def _db_update(*, job_id: str, status: str, error: str | None = None, result: dict | None = None) -> None:
     try:
-        from libs.dbcore import try_update_job
+        from libs.dbcore import ensure_schema, try_update_job
 
+        ensure_schema()
         ok, err = try_update_job(job_id, status=status, error=error, result=result)
         if not ok:
             logger.warning("DB update failed for job_id=%s status=%s: %s", job_id, status, err)
@@ -66,8 +67,9 @@ def _db_ensure_job_row(
 ) -> None:
     try:
         job_uuid = uuid.UUID(job_id)
-        from libs.dbcore import TurboDiffusionJob, session_scope
+        from libs.dbcore import TurboDiffusionJob, ensure_schema, session_scope
 
+        ensure_schema()
         with session_scope() as session:
             row = session.get(TurboDiffusionJob, job_uuid)
             if row is None:

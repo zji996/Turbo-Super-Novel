@@ -113,6 +113,10 @@ docker compose -f infra/docker-compose.dev.yml up -d
 bash scripts/tsn_up.sh
 ```
 
+数据库（可选）：
+
+- 如果设置了 `DATABASE_URL`，后端会在首次写入时自动创建开发用表。
+
 Worker 并发（默认做了限制）：
 
 - `scripts/tsn_manage.sh` 默认设置了 `CELERY_CONCURRENCY=5`（可通过环境变量覆盖）。

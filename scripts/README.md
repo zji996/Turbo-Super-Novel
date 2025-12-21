@@ -38,18 +38,22 @@ uv run --project apps/api scripts/init_db.py
 日志会写入 `logs/`（仅 `.log` 文件）；PID 文件写入 `data/tsn_runtime/pids/`（用于按仓库路径停止）。
 
 ```bash
-# 一键启动 API + Worker
+# 一键启动 API + Worker + Web Frontend
 bash scripts/tsn_up.sh
 
-# 一键停止 API + Worker
+# 一键停止所有服务
 bash scripts/tsn_down.sh
 
 # 单独启动/停止
-bash scripts/tsn_api_start.sh
-bash scripts/tsn_api_stop.sh
-bash scripts/tsn_worker_start.sh
-bash scripts/tsn_worker_stop.sh
+bash scripts/tsn_manage.sh start api
+bash scripts/tsn_manage.sh start worker
+bash scripts/tsn_manage.sh start web
+bash scripts/tsn_manage.sh stop api
+bash scripts/tsn_manage.sh stop worker
+bash scripts/tsn_manage.sh stop web
 
 # 查看状态
 bash scripts/tsn_manage.sh status
 ```
+
+前端默认运行在 http://localhost:5173（可通过 `WEB_PORT` 环境变量修改）。

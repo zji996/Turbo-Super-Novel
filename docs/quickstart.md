@@ -34,6 +34,8 @@ docker compose -f infra/docker-compose.dev.yml up -d
 
 MinIO Console：`http://localhost:9001`（默认账号密码来自 `.env` 的 `S3_ACCESS_KEY/S3_SECRET_KEY`）。
 
+如果你在 `.env` 配了 `DATABASE_URL`，后端会在首次写入时自动创建开发用表（无需额外迁移步骤）。
+
 ## 4. 安装依赖（API + Worker）
 
 ```bash
