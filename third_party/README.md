@@ -5,3 +5,4 @@
 ## Submodules
 
 - `TurboDiffusion` -> `third_party/TurboDiffusion` (https://github.com/thu-ml/TurboDiffusion)
+- `DFloat11` -> `third_party/DFloat11` (https://github.com/LeanModels/DFloat11)

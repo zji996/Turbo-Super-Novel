@@ -1,6 +1,6 @@
 # Quickstart (TurboDiffusion Wan2.2 I2V)
 
-当前项目核心目标：在本机托管并跑通 `models/turbodiffusion/TurboWan2.2-I2V-A14B-720P` 的 I2V 推理链路（API → Worker → MinIO）。
+当前项目核心目标：在本机托管并跑通 TurboDiffusion Wan2.2 I2V 推理链路（API → Worker → MinIO）。
 
 ## 0. 前置条件
 
@@ -45,8 +45,11 @@ uv sync --project apps/worker -p python3.12
 
 ## 5. 下载模型到本机（写入 models/）
 
-默认会下载量化（quant）权重，并写入：
-`models/turbodiffusion/TurboWan2.2-I2V-A14B-720P/`
+默认会下载量化（quant）权重，并写入 `models/` 下的职责目录：
+
+- `models/vae/Wan2.1_VAE.pth`
+- `models/text-encoder/models_t5_umt5-xxl-enc-bf16.pth`
+- `models/wan2.2-i2v-quant/TurboWan2.2-I2V-A14B-*-720P-quant.pth`
 
 ```bash
 uv run --project apps/api scripts/download_turbodiffusion_models.py \

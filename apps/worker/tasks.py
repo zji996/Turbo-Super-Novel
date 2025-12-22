@@ -40,6 +40,34 @@ def _s3_client():
     )
 
 
+def _env_bool(key: str, default: bool = False) -> bool:
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _maybe_cuda_cleanup(*, job_id: str) -> None:
+    if not _env_bool("TD_CUDA_CLEANUP", True):
+        return
+    try:
+        import gc
+
+        import torch
+    except Exception:
+        return
+
+    if not torch.cuda.is_available():
+        return
+
+    try:
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+    except Exception:
+        logger.exception("CUDA cleanup failed (job_id=%s)", job_id)
+
+
 def _db_update(*, job_id: str, status: str, error: str | None = None, result: dict | None = None) -> None:
     try:
         from libs.dbcore import ensure_schema, try_update_job
@@ -162,6 +190,8 @@ def generate_wan22_i2v(  # type: ignore[misc]
         (job_dir / "error.txt").write_text(tb, encoding="utf-8", errors="replace")
         _db_update(job_id=job_id, status="FAILED", error=str(exc), result=None)
         raise
+    finally:
+        _maybe_cuda_cleanup(job_id=job_id)
 
     s3.upload_file(
         str(output_path),

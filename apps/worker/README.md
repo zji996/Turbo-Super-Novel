@@ -17,6 +17,11 @@ uv run --project apps/worker --directory apps/worker celery -A celery_app:celery
 bash scripts/tsn_up.sh
 ```
 
+DF11 文本编码器（默认支持）：
+
+- Worker 默认包含 DF11 运行时依赖（`cupy-cuda12x` / `safetensors` / `dahuffman` 等）。
+- 若存在 `models/text-encoder-df11/models_t5_umt5-xxl-enc-df11.safetensors` 且 `TD_TEXT_ENCODER_FORMAT=df11`，推理会优先使用 DF11；否则自动回退到 BF16 `.pth`。
+
 GPU/FlashAttention（可选）：
 
 `flash-attn` 在 `torch==2.9.*` 上目前没有对应的预编译 wheel，会触发源码编译并要求本机 CUDA Toolkit 版本与 PyTorch 编译版本一致（例如 torch `+cu128` 需要 CUDA 12.8 的 `nvcc`）。为了避免本机编译，本项目将 `flash-attn` 放在可选依赖组 `cuda` 中，并在该组内将 `torch/torchvision` 约束到 `<2.9/<0.24`（从而使用已有的 `flash-attn` wheel）：

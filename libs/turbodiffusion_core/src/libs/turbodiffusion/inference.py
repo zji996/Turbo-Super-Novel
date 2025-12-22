@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from libs.pycore.paths import data_dir
 
-from .paths import Wan22I2VModelPaths
+from .paths import Wan22I2VModelPaths, wan22_i2v_text_encoder_df11_path
 
 
 class TurboDiffusionInferenceError(RuntimeError):
@@ -42,7 +43,15 @@ def run_wan22_i2v(
     """
     _require_file(image_path)
     _require_file(model_paths.vae_path)
-    _require_file(model_paths.text_encoder_path)
+    text_encoder_format = str(os.getenv("TD_TEXT_ENCODER_FORMAT", "df11")).strip().lower()
+    if text_encoder_format == "df11":
+        df11_path = wan22_i2v_text_encoder_df11_path()
+        if df11_path.is_file():
+            _require_file(df11_path)
+        else:
+            _require_file(model_paths.text_encoder_path)
+    else:
+        _require_file(model_paths.text_encoder_path)
     _require_file(model_paths.high_noise_dit_path)
     _require_file(model_paths.low_noise_dit_path)
 

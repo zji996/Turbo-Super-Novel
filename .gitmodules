@@ -1,3 +1,6 @@
 [submodule "third_party/TurboDiffusion"]
 	path = third_party/TurboDiffusion
 	url = https://github.com/thu-ml/TurboDiffusion
+[submodule "third_party/DFloat11"]
+	path = third_party/DFloat11
+	url = https://github.com/LeanModels/DFloat11

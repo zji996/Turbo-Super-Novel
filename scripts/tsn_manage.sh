@@ -234,10 +234,71 @@ api_cmd() {
   echo "\"$UV_BIN\" run --project apps/api --directory apps/api uvicorn main:app --host $host --port $port $reload_arg"
 }
 
+resolve_gpu_mode() {
+  # GPU_MODE 是高层语义配置，自动推断底层参数
+  # 用户也可以手动覆盖任何底层参数
+  local mode="${GPU_MODE:-balanced}"
+  
+  case "$mode" in
+    fast)
+      # 🚀 速度优先: 模型常驻 + 并发 + threads 池
+      export TD_RESIDENT_GPU="${TD_RESIDENT_GPU:-1}"
+      export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-2}"
+      export CELERY_POOL="${CELERY_POOL:-threads}"
+      export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-0}"
+      echo "[GPU_MODE=fast] 模型常驻显存, 并发=${CELERY_CONCURRENCY}, 池=${CELERY_POOL}"
+      ;;
+    balanced)
+      # ⚖️ 平衡模式: 模型常驻 + 单任务
+      export TD_RESIDENT_GPU="${TD_RESIDENT_GPU:-1}"
+      export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-1}"
+      export CELERY_POOL="${CELERY_POOL:-threads}"
+      export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-0}"
+      echo "[GPU_MODE=balanced] 模型常驻显存, 单任务处理"
+      ;;
+    lowvram)
+      # 💾 显存优先: 按需加载 + 单任务
+      export TD_RESIDENT_GPU="${TD_RESIDENT_GPU:-0}"
+      export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-1}"
+      export CELERY_POOL="${CELERY_POOL:-}"
+      export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-1}"
+      echo "[GPU_MODE=lowvram] 按需加载模型, 节省显存"
+      ;;
+    *)
+      echo "[warn] 未知的 GPU_MODE='$mode', 使用 balanced 模式" >&2
+      GPU_MODE=balanced
+      resolve_gpu_mode
+      return
+      ;;
+  esac
+}
+
 worker_cmd() {
-  local concurrency="${CELERY_CONCURRENCY:-5}"
+  # 先解析 GPU_MODE，设置默认值
+  resolve_gpu_mode
+
+  local concurrency="${CELERY_CONCURRENCY:-1}"
   local prefetch="${CELERY_PREFETCH_MULTIPLIER:-1}"
-  echo "\"$UV_BIN\" run --project apps/worker --directory apps/worker celery -A celery_app:celery_app worker -l ${CELERY_LOG_LEVEL:-info} --concurrency ${concurrency} --prefetch-multiplier ${prefetch}"
+  local pool="${CELERY_POOL:-}"
+  local resident_gpu="${TD_RESIDENT_GPU:-0}"
+
+  # 如果用户手动设置了底层参数但没设置 pool，自动推断
+  if [[ -z "$pool" && "$resident_gpu" == "1" ]]; then
+    pool="threads"
+  fi
+
+  local extra_args=""
+  if [[ -n "${CELERY_MAX_TASKS_PER_CHILD:-}" ]]; then
+    extra_args+=" --max-tasks-per-child ${CELERY_MAX_TASKS_PER_CHILD}"
+  fi
+  if [[ -n "${CELERY_MAX_MEMORY_PER_CHILD:-}" ]]; then
+    extra_args+=" --max-memory-per-child ${CELERY_MAX_MEMORY_PER_CHILD}"
+  fi
+  local pool_arg=""
+  if [[ -n "$pool" ]]; then
+    pool_arg=" --pool ${pool}"
+  fi
+  echo "\"$UV_BIN\" run --project apps/worker --directory apps/worker celery -A celery_app:celery_app worker -l ${CELERY_LOG_LEVEL:-info}${pool_arg} --concurrency ${concurrency} --prefetch-multiplier ${prefetch}${extra_args}"
 }
 
 web_cmd() {
@@ -258,30 +319,29 @@ maybe_pnpm_install() {
 
 usage() {
   cat <<'EOF'
-Usage:
-  scripts/tsn_manage.sh start  [api|worker|web|all]
-  scripts/tsn_manage.sh stop   [api|worker|web|all]
+用法:
+  scripts/tsn_manage.sh start   [api|worker|web|all]
+  scripts/tsn_manage.sh stop    [api|worker|web|all]
   scripts/tsn_manage.sh restart [api|worker|web|all]
   scripts/tsn_manage.sh status
 
-Env:
-  TSN_ENV_FILE=...        Optional env file to source (default: .env, else .env.example)
-  TSN_SKIP_SYNC=1         Skip `uv sync` checks
-  LOG_DIR=...             Log directory (default: ./logs)
-  DATA_DIR=...            Data directory for pidfiles (default: ./data)
+GPU 模式 (最重要的配置):
+  GPU_MODE=fast       🚀 速度优先 (24GB+ 显存, 并发处理)
+  GPU_MODE=balanced   ⚖️ 平衡模式 (16-24GB 显存, 推荐)
+  GPU_MODE=lowvram    💾 显存优先 (12GB 及以下)
 
-API:
-  API_HOST=0.0.0.0
-  API_PORT=8000
-  API_RELOAD=1            Use uvicorn --reload (default: 1)
+环境变量:
+  TSN_ENV_FILE=...    指定 env 文件 (默认: .env)
+  TSN_SKIP_SYNC=1     跳过 uv sync 检查
 
-Worker:
-  CELERY_LOG_LEVEL=info
-  CELERY_CONCURRENCY=5
-  CELERY_PREFETCH_MULTIPLIER=1
+目录:
+  MODELS_DIR=...      模型目录 (默认: ./models)
+  DATA_DIR=...        数据目录 (默认: ./data)
+  LOG_DIR=...         日志目录 (默认: ./logs)
 
-Web (Frontend):
-  WEB_PORT=5173
+服务端口:
+  API_PORT=8000       API 端口
+  WEB_PORT=5173       前端端口
 EOF
 }
 

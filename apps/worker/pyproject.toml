@@ -28,6 +28,11 @@ dependencies = [
   "attrs",
   "fvcore",
   "nvidia-ml-py",
+  # DF11 runtime deps (used by Wan2.2 text encoder path when TD_TEXT_ENCODER_FORMAT=df11).
+  "accelerate",
+  "dahuffman==0.4.2",
+  "safetensors",
+  "cupy-cuda12x",
 ]
 
 [tool.uv.sources]

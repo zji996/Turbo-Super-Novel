@@ -29,29 +29,30 @@ def list_artifacts(
             name="Wan2.1_VAE.pth",
             url="https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/resolve/main/Wan2.1_VAE.pth",
             group="base",
-            relative_path="turbodiffusion/checkpoints/Wan2.1_VAE.pth",
+            relative_path="vae/Wan2.1_VAE.pth",
         ),
         ModelArtifact(
             name="models_t5_umt5-xxl-enc-bf16.pth",
             url="https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/resolve/main/models_t5_umt5-xxl-enc-bf16.pth",
             group="base",
-            relative_path="turbodiffusion/checkpoints/models_t5_umt5-xxl-enc-bf16.pth",
+            relative_path="text-encoder/models_t5_umt5-xxl-enc-bf16.pth",
         ),
     ]
 
     suffix = "-quant" if quantized else ""
+    dit_dir = "wan2.2-i2v-quant" if quantized else "wan2.2-i2v"
     dit = [
         ModelArtifact(
             name=f"TurboWan2.2-I2V-A14B-high-720P{suffix}.pth",
             url=f"https://huggingface.co/TurboDiffusion/TurboWan2.2-I2V-A14B-720P/resolve/main/TurboWan2.2-I2V-A14B-high-720P{suffix}.pth",
             group="dit",
-            relative_path=f"turbodiffusion/TurboWan2.2-I2V-A14B-720P/TurboWan2.2-I2V-A14B-high-720P{suffix}.pth",
+            relative_path=f"{dit_dir}/TurboWan2.2-I2V-A14B-high-720P{suffix}.pth",
         ),
         ModelArtifact(
             name=f"TurboWan2.2-I2V-A14B-low-720P{suffix}.pth",
             url=f"https://huggingface.co/TurboDiffusion/TurboWan2.2-I2V-A14B-720P/resolve/main/TurboWan2.2-I2V-A14B-low-720P{suffix}.pth",
             group="dit",
-            relative_path=f"turbodiffusion/TurboWan2.2-I2V-A14B-720P/TurboWan2.2-I2V-A14B-low-720P{suffix}.pth",
+            relative_path=f"{dit_dir}/TurboWan2.2-I2V-A14B-low-720P{suffix}.pth",
         ),
     ]
 
@@ -68,4 +69,3 @@ def iter_artifacts(
     for artifact in list_artifacts(model, quantized=quantized):
         if artifact.group in allowed:
             yield artifact
-

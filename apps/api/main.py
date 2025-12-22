@@ -42,7 +42,7 @@ def turbodiffusion_models() -> dict:
                 "model": "TurboWan2.2-I2V-A14B-720P",
                 "quantized": True,
                 "files": [
-                    {"name": a.name, "group": a.group, "path": str(root.parent / a.relative_path), "exists": (root.parent / a.relative_path).is_file()}
+                    {"name": a.name, "group": a.group, "path": str(root / a.relative_path), "exists": (root / a.relative_path).is_file()}
                     for a in artifacts
                 ],
                 "paths": {

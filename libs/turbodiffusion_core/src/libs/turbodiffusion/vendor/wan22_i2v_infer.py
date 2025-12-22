@@ -4,6 +4,7 @@ import argparse
 import math
 import os
 import sys
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +15,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from libs.pycore.paths import data_dir
-from libs.turbodiffusion.paths import turbodiffusion_repo_dir
+from libs.turbodiffusion.paths import turbodiffusion_repo_dir, wan22_i2v_text_encoder_df11_path
 
 
 def _ensure_upstream_on_syspath() -> None:
@@ -51,6 +52,122 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _env_bool(key: str, default: bool = False) -> bool:
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+_RESIDENT_LOCK = threading.Lock()
+_TEXT_ENCODER_LOCK = threading.Lock()
+_RESIDENT_DIT: tuple[Path, Path, str, float, torch.nn.Module, torch.nn.Module] | None = None
+_RESIDENT_VAE: tuple[Path, object] | None = None
+_RESIDENT_DF11_TEXT: tuple[Path, str, int, object] | None = None
+
+
+def _get_resident_dit_models(
+    *,
+    high_noise_model_path: Path,
+    low_noise_model_path: Path,
+    attention_type: str,
+    sla_topk: float,
+) -> tuple[torch.nn.Module, torch.nn.Module]:
+    global _RESIDENT_DIT
+    with _RESIDENT_LOCK:
+        if _RESIDENT_DIT is not None:
+            hi_path, lo_path, cached_attn, cached_topk, hi_model, lo_model = _RESIDENT_DIT
+            if (
+                hi_path == high_noise_model_path
+                and lo_path == low_noise_model_path
+                and cached_attn == attention_type
+                and float(cached_topk) == float(sla_topk)
+            ):
+                return hi_model, lo_model
+
+        from .modify_model import create_model  # noqa: PLC0415
+
+        args = argparse.Namespace(
+            model="Wan2.2-A14B",
+            attention_type=attention_type,
+            sla_topk=sla_topk,
+            quant_linear=False,
+            default_norm=True,
+        )
+
+        hi_model = create_model(dit_path=str(high_noise_model_path), args=args).eval()
+        lo_model = create_model(dit_path=str(low_noise_model_path), args=args).eval()
+        _RESIDENT_DIT = (high_noise_model_path, low_noise_model_path, attention_type, float(sla_topk), hi_model, lo_model)
+        return hi_model, lo_model
+
+
+def _get_resident_vae_tokenizer(*, vae_path: Path) -> object:
+    global _RESIDENT_VAE
+    with _RESIDENT_LOCK:
+        if _RESIDENT_VAE is not None:
+            cached_path, cached = _RESIDENT_VAE
+            if cached_path == vae_path:
+                return cached
+
+        from rcm.tokenizers.wan2pt1 import Wan2pt1VAEInterface  # noqa: PLC0415
+
+        tokenizer = Wan2pt1VAEInterface(vae_pth=str(vae_path))
+        _RESIDENT_VAE = (vae_path, tokenizer)
+        return tokenizer
+
+
+def _get_text_embedding(
+    *,
+    checkpoint_path: Path,
+    prompt: str,
+    device: str,
+    max_length: int,
+    resident: bool,
+) -> torch.Tensor:
+    text_encoder_format = str(os.getenv("TD_TEXT_ENCODER_FORMAT", "df11")).strip().lower()
+    if text_encoder_format == "df11":
+        df11_path = wan22_i2v_text_encoder_df11_path()
+        if not df11_path.is_file():
+            print(f"[warn] DF11 text encoder file missing; falling back to bf16: {df11_path}", file=sys.stderr)
+            text_encoder_format = "bf16"
+
+    if text_encoder_format == "df11":
+        try:
+            from libs.turbodiffusion.df11_umt5_encoder import UMT5DF11Encoder  # noqa: PLC0415
+        except Exception as exc:
+            print(f"[warn] DF11 text encoder requested but helper import failed; falling back to bf16: {exc}", file=sys.stderr)
+        else:
+            global _RESIDENT_DF11_TEXT
+            with _TEXT_ENCODER_LOCK:
+                if _RESIDENT_DF11_TEXT is not None:
+                    cached_path, cached_device, cached_len, encoder = _RESIDENT_DF11_TEXT
+                    if cached_path == df11_path and cached_device == device and int(cached_len) == int(max_length):
+                        return encoder(prompt)  # type: ignore[call-arg]
+
+                try:
+                    encoder = UMT5DF11Encoder(
+                        df11_dir=df11_path.parent,
+                        df11_safetensors_path=df11_path,
+                        device=device,
+                        max_length=max_length,
+                    )
+                except Exception as exc:
+                    print(f"[warn] DF11 text encoder init failed; falling back to bf16: {exc}", file=sys.stderr)
+                else:
+                    if resident:
+                        _RESIDENT_DF11_TEXT = (df11_path, device, int(max_length), encoder)
+                    return encoder(prompt)
+
+    from rcm.utils.umt5 import clear_umt5_memory, get_umt5_embedding  # noqa: PLC0415
+
+    emb = get_umt5_embedding(checkpoint_path=str(checkpoint_path), prompts=prompt, device=device, max_length=max_length)
+    if not resident:
+        clear_umt5_memory()
+        if str(device).startswith("cuda"):
+            torch.cuda.empty_cache()
+    return emb
+
+
 def generate_wan22_i2v(
     *,
     image_path: Path,
@@ -76,7 +193,6 @@ def generate_wan22_i2v(
     from imaginaire.utils.io import save_image_or_video  # noqa: PLC0415
     from imaginaire.utils import log  # noqa: PLC0415
     from rcm.datasets.utils import VIDEO_RES_SIZE_INFO  # noqa: PLC0415
-    from rcm.utils.umt5 import clear_umt5_memory, get_umt5_embedding  # noqa: PLC0415
     from rcm.tokenizers.wan2pt1 import Wan2pt1VAEInterface  # noqa: PLC0415
 
     from .modify_model import tensor_kwargs, create_model  # noqa: PLC0415
@@ -84,31 +200,45 @@ def generate_wan22_i2v(
     if os.getenv("HF_HOME") is None:
         os.environ["HF_HOME"] = str((data_dir() / "hf").resolve())
 
+    resident_gpu = _env_bool("TD_RESIDENT_GPU", False)
+
     log.info(f"Computing embedding for prompt: {prompt}")
     umt5_device = os.getenv("TD_UMT5_DEVICE", "cuda")
-    text_emb = get_umt5_embedding(checkpoint_path=str(text_encoder_path), prompts=prompt, device=umt5_device).to(
-        **tensor_kwargs
-    )
-    clear_umt5_memory()
-    if str(umt5_device).startswith("cuda"):
+    text_emb = _get_text_embedding(
+        checkpoint_path=text_encoder_path,
+        prompt=prompt,
+        device=str(umt5_device),
+        max_length=512,
+        resident=resident_gpu,
+    ).to(**tensor_kwargs)
+
+    if resident_gpu:
+        log.info("Loading DiT models (resident GPU mode).")
+        high_noise_model, low_noise_model = _get_resident_dit_models(
+            high_noise_model_path=high_noise_model_path,
+            low_noise_model_path=low_noise_model_path,
+            attention_type=attention_type,
+            sla_topk=sla_topk,
+        )
+        log.success("Successfully loaded DiT models (resident GPU mode).")
+        tokenizer = _get_resident_vae_tokenizer(vae_path=vae_path)
+    else:
+        args = argparse.Namespace(
+            model="Wan2.2-A14B",
+            attention_type=attention_type,
+            sla_topk=sla_topk,
+            quant_linear=False,
+            default_norm=True,
+        )
+
+        log.info("Loading DiT models (dev fallback: no custom CUDA ops).")
+        high_noise_model = create_model(dit_path=str(high_noise_model_path), args=args).cpu()
         torch.cuda.empty_cache()
+        low_noise_model = create_model(dit_path=str(low_noise_model_path), args=args).cpu()
+        torch.cuda.empty_cache()
+        log.success("Successfully loaded DiT models.")
 
-    args = argparse.Namespace(
-        model="Wan2.2-A14B",
-        attention_type=attention_type,
-        sla_topk=sla_topk,
-        quant_linear=False,
-        default_norm=True,
-    )
-
-    log.info("Loading DiT models (dev fallback: no custom CUDA ops).")
-    high_noise_model = create_model(dit_path=str(high_noise_model_path), args=args).cpu()
-    torch.cuda.empty_cache()
-    low_noise_model = create_model(dit_path=str(low_noise_model_path), args=args).cpu()
-    torch.cuda.empty_cache()
-    log.success("Successfully loaded DiT models.")
-
-    tokenizer = Wan2pt1VAEInterface(vae_pth=str(vae_path))
+        tokenizer = Wan2pt1VAEInterface(vae_pth=str(vae_path))
 
     log.info(f"Loading and preprocessing image from: {image_path}")
     input_image = Image.open(image_path).convert("RGB")
@@ -177,14 +307,16 @@ def generate_wan22_i2v(
     ones = torch.ones(x.size(0), 1, device=x.device, dtype=x.dtype)
 
     total_steps = t_steps.shape[0] - 1
-    high_noise_model.cuda()
+    if not resident_gpu:
+        high_noise_model.cuda()
     net = high_noise_model
     switched = False
     for t_cur, t_next in tqdm(list(zip(t_steps[:-1], t_steps[1:])), desc="Sampling", total=total_steps):
         if t_cur.item() < boundary and not switched:
-            high_noise_model.cpu()
-            torch.cuda.empty_cache()
-            low_noise_model.cuda()
+            if not resident_gpu:
+                high_noise_model.cpu()
+                torch.cuda.empty_cache()
+                low_noise_model.cuda()
             net = low_noise_model
             switched = True
         with torch.no_grad():
@@ -201,8 +333,9 @@ def generate_wan22_i2v(
                 )
 
     samples = x.float()
-    low_noise_model.cpu()
-    torch.cuda.empty_cache()
+    if not resident_gpu:
+        low_noise_model.cpu()
+        torch.cuda.empty_cache()
 
     video = tokenizer.decode(samples)
     to_show = (1.0 + video.float().cpu().clamp(-1, 1)) / 2.0

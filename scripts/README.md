@@ -27,6 +27,16 @@ uv sync --project apps/worker -p python3.12
 uv run --project apps/worker scripts/smoke_turbodiffusion_i2v.py --input-index 0 --prompt-index 0
 ```
 
+## TurboDiffusion UMT5 (T5 encoder) DF11 压缩
+
+借用 `apps/worker` 环境运行（需要 GPU + CUDA12 的 CuPy；生成的 DF11 文本编码器会在推理侧按需使用，见 `TD_TEXT_ENCODER_FORMAT=df11`）：
+
+```bash
+cp .env.example .env
+uv sync --project apps/worker
+uv run --project apps/worker scripts/compress_turbodiffusion_t5_dfloat11.py
+```
+
 ## Init DB (dev)
 
 ```bash
