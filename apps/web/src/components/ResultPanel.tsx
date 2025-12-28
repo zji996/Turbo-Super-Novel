@@ -22,6 +22,7 @@ export function ResultPanel({ job, onRetry }: ResultPanelProps) {
     const isRunning = job.status === 'PENDING' || job.status === 'STARTED';
     const isSuccess = job.status === 'SUCCESS' && job.output_url;
     const isFailure = job.status === 'FAILURE' || job.error;
+    const durationSeconds = Number.isFinite(job.params.duration_seconds) ? job.params.duration_seconds : 5;
 
     return (
         <div className="card h-full">
@@ -37,6 +38,9 @@ export function ResultPanel({ job, onRetry }: ResultPanelProps) {
                     </p>
                     <p className="text-sm text-[var(--color-text-muted)] mt-2">
                         Status: {job.db_status || job.status}
+                    </p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                        Target duration: {durationSeconds}s
                     </p>
                     <p className="text-xs text-[var(--color-text-muted)] mt-4">
                         This may take a few minutes
@@ -64,6 +68,8 @@ export function ResultPanel({ job, onRetry }: ResultPanelProps) {
                             <span>Seed: {job.params.seed}</span>
                             <span className="mx-2">•</span>
                             <span>Steps: {job.params.num_steps}</span>
+                            <span className="mx-2">•</span>
+                            <span>Duration: {durationSeconds}s</span>
                         </div>
 
                         <a

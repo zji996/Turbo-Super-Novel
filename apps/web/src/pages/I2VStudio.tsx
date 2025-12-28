@@ -92,6 +92,7 @@ export function I2VStudio() {
     const handleRetry = useCallback((prevParams: I2VParams) => {
         // Set new random seed but keep other params
         setParams({
+            ...DEFAULT_I2V_PARAMS,
             ...prevParams,
             seed: Math.floor(Math.random() * 2147483647),
         });

@@ -130,10 +130,65 @@ maybe_uv_sync() {
   if [[ "${TSN_SKIP_SYNC:-0}" == "1" ]]; then
     return 0
   fi
-  if [[ -d "$REPO_ROOT/$project_dir/.venv" ]]; then
+  local group_args=()
+  local groups=""
+  local cuda_home=""
+  local cudacxx=""
+  if [[ "$project_dir" == "apps/worker" ]]; then
+    # Worker is GPU inference oriented; default to installing the `cuda` group to enable FlashAttention etc.
+    # Override examples:
+    #   TSN_WORKER_UV_GROUPS=cuda,sagesla   # install both groups
+    #   TSN_WORKER_UV_GROUPS=               # install no extra groups
+    groups="${TSN_WORKER_UV_GROUPS:-cuda,sagesla}"
+
+    # SageSLA / TurboDiffusion ops compilation requires nvcc matching torch CUDA (e.g. torch +cu128 -> nvcc 12.8).
+    # Prefer a user-installed toolkit at ~/.local/cuda-<torch.cuda>, falling back to system nvcc.
+    cuda_home="${CUDA_HOME:-}"
+    cudacxx="${CUDACXX:-}"
+    if [[ -z "$cuda_home" ]]; then
+      local torch_cuda
+      torch_cuda="$("$UV_BIN" run --project apps/worker --directory apps/worker python -c "import torch; print(torch.version.cuda or '')" 2>/dev/null || true)"
+      if [[ -n "$torch_cuda" && -d "$HOME/.local/cuda-$torch_cuda" ]]; then
+        cuda_home="$HOME/.local/cuda-$torch_cuda"
+      fi
+    fi
+    if [[ -n "$cuda_home" && -z "$cudacxx" && -x "$cuda_home/bin/nvcc" ]]; then
+      cudacxx="$cuda_home/bin/nvcc"
+    fi
+
+    if [[ -n "$groups" ]]; then
+      local g
+      IFS=',' read -r -a _tsn_groups <<<"$groups"
+      for g in "${_tsn_groups[@]}"; do
+        g="$(echo "$g" | xargs)"
+        if [[ -n "$g" ]]; then
+          group_args+=(--group "$g")
+        fi
+      done
+    fi
+  fi
+  if [[ -n "$cuda_home" || -n "$cudacxx" ]]; then
+    if CUDA_HOME="$cuda_home" CUDACXX="$cudacxx" "$UV_BIN" sync --project "$project_dir" "${group_args[@]}"; then
+      return 0
+    fi
+  else
+    if "$UV_BIN" sync --project "$project_dir" "${group_args[@]}"; then
+      return 0
+    fi
+  fi
+
+  # If SageSLA build fails (nvcc/CUDA mismatch is common), automatically fall back to `cuda` only.
+  if [[ "$project_dir" == "apps/worker" && "$groups" == *"sagesla"* ]]; then
+    echo "[warn] uv sync for worker failed with TSN_WORKER_UV_GROUPS='${groups}'; retrying without 'sagesla'." >&2
+    if [[ -n "$cuda_home" || -n "$cudacxx" ]]; then
+      CUDA_HOME="$cuda_home" CUDACXX="$cudacxx" "$UV_BIN" sync --project "$project_dir" --group cuda
+    else
+      "$UV_BIN" sync --project "$project_dir" --group cuda
+    fi
     return 0
   fi
-  "$UV_BIN" sync --project "$project_dir"
+
+  return 1
 }
 
 start_service() {
@@ -246,7 +301,7 @@ resolve_gpu_mode() {
       export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-2}"
       export CELERY_POOL="${CELERY_POOL:-threads}"
       export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-0}"
-      echo "[GPU_MODE=fast] 模型常驻显存, 并发=${CELERY_CONCURRENCY}, 池=${CELERY_POOL}"
+      echo "[GPU_MODE=fast] 模型常驻显存, 并发=${CELERY_CONCURRENCY}, 池=${CELERY_POOL}" >&2
       ;;
     balanced)
       # ⚖️ 平衡模式: 模型常驻 + 单任务
@@ -254,7 +309,7 @@ resolve_gpu_mode() {
       export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-1}"
       export CELERY_POOL="${CELERY_POOL:-threads}"
       export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-0}"
-      echo "[GPU_MODE=balanced] 模型常驻显存, 单任务处理"
+      echo "[GPU_MODE=balanced] 模型常驻显存, 单任务处理" >&2
       ;;
     lowvram)
       # 💾 显存优先: 按需加载 + 单任务
@@ -262,7 +317,7 @@ resolve_gpu_mode() {
       export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-1}"
       export CELERY_POOL="${CELERY_POOL:-}"
       export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-1}"
-      echo "[GPU_MODE=lowvram] 按需加载模型, 节省显存"
+      echo "[GPU_MODE=lowvram] 按需加载模型, 节省显存" >&2
       ;;
     *)
       echo "[warn] 未知的 GPU_MODE='$mode', 使用 balanced 模式" >&2

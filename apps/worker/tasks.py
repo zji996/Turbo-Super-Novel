@@ -132,7 +132,8 @@ def generate_wan22_i2v(  # type: ignore[misc]
     seed: int = 0,
     num_steps: int = 4,
     quantized: bool = True,
-    attention_type: str = "sla",
+    duration_seconds: float | None = None,
+    attention_type: str = "sagesla",
     sla_topk: float = 0.1,
     ode: bool = True,
     adaptive_resolution: bool = True,
@@ -144,6 +145,31 @@ def generate_wan22_i2v(  # type: ignore[misc]
     s3 = _s3_client()
     job_dir = (data_dir() / "turbodiffusion" / "jobs" / job_id).resolve()
     job_dir.mkdir(parents=True, exist_ok=True)
+
+    fps = float(os.getenv("TD_VIDEO_FPS", "16") or "16")
+    if fps <= 0:
+        raise ValueError(f"TD_VIDEO_FPS must be > 0, got {fps}")
+
+    num_frames: int | None = None
+    if duration_seconds is not None:
+        if float(duration_seconds) <= 0:
+            raise ValueError(f"duration_seconds must be > 0, got {duration_seconds}")
+        max_duration = float(os.getenv("TD_MAX_VIDEO_SECONDS", "10") or "10")
+        if float(duration_seconds) > max_duration:
+            raise ValueError(f"duration_seconds too large (max={max_duration}s), got {duration_seconds}")
+
+        num_frames = int(round(float(duration_seconds) * fps))
+        if num_frames <= 0:
+            min_duration = 0.5 / fps
+            raise ValueError(
+                f"duration_seconds too small (computed num_frames={num_frames} with fps={fps}); try duration_seconds>={min_duration:.3f}"
+            )
+        if num_frames == 2:
+            min_duration = 2.5 / fps
+            raise ValueError(
+                "duration_seconds too small for stable VAE encoding "
+                f"(computed num_frames=2 with fps={fps}); try duration_seconds>={min_duration:.3f} or increase TD_VIDEO_FPS"
+            )
 
     _db_ensure_job_row(
         job_id=job_id,
@@ -168,11 +194,14 @@ def generate_wan22_i2v(  # type: ignore[misc]
     model_paths = wan22_i2v_model_paths(quantized=quantized)
     try:
         _db_update(job_id=job_id, status="RUNNING", error=None, result=None)
+
         run_wan22_i2v(
             image_path=input_path,
             prompt=prompt,
             output_path=output_path,
             model_paths=model_paths,
+            num_frames=(num_frames or 77),
+            fps=fps,
             seed=seed,
             num_steps=num_steps,
             attention_type=attention_type,
@@ -205,7 +234,11 @@ def generate_wan22_i2v(  # type: ignore[misc]
         job_id=job_id,
         status="SUCCEEDED",
         error=None,
-        result={"output_bucket": output_bucket, "output_key": output_key},
+        result={
+            "output_bucket": output_bucket,
+            "output_key": output_key,
+            "duration_seconds": float(duration_seconds) if duration_seconds is not None else None,
+        },
     )
 
     return {
@@ -214,4 +247,5 @@ def generate_wan22_i2v(  # type: ignore[misc]
         "input_key": input_key,
         "output_bucket": output_bucket,
         "output_key": output_key,
+        "duration_seconds": float(duration_seconds) if duration_seconds is not None else None,
     }

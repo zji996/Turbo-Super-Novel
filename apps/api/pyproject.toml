@@ -1,6 +1,6 @@
 [project]
 name = "tsn-api"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turbo-Super-Novel API"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -10,15 +10,22 @@ dependencies = [
   "celery>=5.4",
   "redis>=5.0",
   "python-multipart>=0.0.9",
+  "pydantic>=2.0",
   "py_core",
   "td_core",
   "db_core",
+  "novel_core",
+  "tts_core",
+  "imagegen_core",
 ]
 
 [tool.uv.sources]
 py_core = { path = "../../libs/pycore", editable = true }
 td_core = { path = "../../libs/turbodiffusion_core", editable = true }
 db_core = { path = "../../libs/dbcore", editable = true }
+novel_core = { path = "../../libs/novelcore", editable = true }
+tts_core = { path = "../../libs/ttscore", editable = true }
+imagegen_core = { path = "../../libs/imagegencore", editable = true }
 
 [dependency-groups]
 dev = [

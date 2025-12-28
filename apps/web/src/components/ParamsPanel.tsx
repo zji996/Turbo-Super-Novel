@@ -27,6 +27,13 @@ export function ParamsPanel({ params, onChange, disabled = false }: ParamsPanelP
         onChange({ ...params, quantized: e.target.checked });
     }, [params, onChange]);
 
+    const handleDurationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = parseFloat(e.target.value);
+        const normalized = Number.isFinite(value) ? value : 5;
+        const clamped = Math.min(10, Math.max(1, normalized));
+        onChange({ ...params, duration_seconds: clamped });
+    }, [params, onChange]);
+
     return (
         <div className="card">
             <h3 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-4">
@@ -34,6 +41,26 @@ export function ParamsPanel({ params, onChange, disabled = false }: ParamsPanelP
             </h3>
 
             <div className="space-y-4">
+                {/* Duration */}
+                <div>
+                    <label className="block text-sm text-[var(--color-text-secondary)] mb-1.5">
+                        Clip Duration (seconds)
+                    </label>
+                    <input
+                        type="number"
+                        value={params.duration_seconds}
+                        onChange={handleDurationChange}
+                        min={1}
+                        max={10}
+                        step={0.5}
+                        disabled={disabled}
+                        className="input"
+                    />
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                        Use 5–10s clips for stitching into a short drama
+                    </p>
+                </div>
+
                 {/* Num Steps */}
                 <div>
                     <label className="block text-sm text-[var(--color-text-secondary)] mb-1.5">

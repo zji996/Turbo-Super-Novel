@@ -6,6 +6,7 @@ from pathlib import Path
 from libs.pycore.paths import data_dir
 
 from .paths import Wan22I2VModelPaths, wan22_i2v_text_encoder_df11_path
+from .hf import default_umt5_tokenizer_dir, require_local_tokenizer, umt5_tokenizer_id
 
 
 class TurboDiffusionInferenceError(RuntimeError):
@@ -17,15 +18,63 @@ def _require_file(path: Path) -> None:
         raise FileNotFoundError(str(path))
 
 
+def _check_wan22_i2v_assets(*, image_path: Path, model_paths: Wan22I2VModelPaths) -> None:
+    missing: list[Path] = []
+
+    if not image_path.is_file():
+        missing.append(image_path)
+    if not model_paths.vae_path.is_file():
+        missing.append(model_paths.vae_path)
+    if not model_paths.high_noise_dit_path.is_file():
+        missing.append(model_paths.high_noise_dit_path)
+    if not model_paths.low_noise_dit_path.is_file():
+        missing.append(model_paths.low_noise_dit_path)
+
+    text_encoder_format = str(os.getenv("TD_TEXT_ENCODER_FORMAT", "df11")).strip().lower()
+    df11_path = wan22_i2v_text_encoder_df11_path()
+    if text_encoder_format == "df11":
+        if not df11_path.is_file() and not model_paths.text_encoder_path.is_file():
+            missing.append(df11_path)
+            missing.append(model_paths.text_encoder_path)
+    else:
+        if not model_paths.text_encoder_path.is_file():
+            missing.append(model_paths.text_encoder_path)
+
+    tokenizer_dir = default_umt5_tokenizer_dir()
+    resolved = umt5_tokenizer_id()
+    try:
+        require_local_tokenizer(resolved)
+    except Exception as exc:
+        raise RuntimeError(
+            "UMT5 tokenizer directory is missing. This project does not auto-download tokenizers at runtime.\n"
+            f"Expected (default): {tokenizer_dir}\n"
+            "Fix: `uv run --project apps/worker scripts/cache_umt5_tokenizer.py` "
+            "then set `TD_UMT5_TOKENIZER_DIR` (or keep the default path)."
+        ) from exc
+
+    if missing:
+        unique = sorted({p.resolve() for p in missing})
+        lines = "\n".join(f"- {p}" for p in unique)
+        raise FileNotFoundError(
+            "Required TurboDiffusion model files are missing:\n"
+            f"{lines}\n\n"
+            "Fix (base+dit weights): `uv run --project apps/worker scripts/download_turbodiffusion_models.py`\n"
+            "Fix (DF11 text encoder): provide your quantized file under "
+            f"`{df11_path}` (download is intentionally not automated yet)."
+        )
+
+
 def run_wan22_i2v(
     *,
     image_path: Path,
     prompt: str,
     output_path: Path,
     model_paths: Wan22I2VModelPaths,
+    num_frames: int = 77,
+    fps: float = 16,
     num_steps: int = 4,
     seed: int = 0,
-    attention_type: str = "sla",
+    attention_type: str = "sagesla",
     sla_topk: float = 0.1,
     resolution: str = "720p",
     aspect_ratio: str = "16:9",
@@ -38,9 +87,9 @@ def run_wan22_i2v(
     """
     Run Wan2.2 I2V inference.
 
-    Dev default uses a vendored wrapper that avoids building TurboDiffusion custom CUDA ops,
-    while still using the upstream model code under `third_party/TurboDiffusion`.
+    Dev default uses a vendored wrapper that avoids building TurboDiffusion custom CUDA ops.
     """
+    _check_wan22_i2v_assets(image_path=image_path, model_paths=model_paths)
     _require_file(image_path)
     _require_file(model_paths.vae_path)
     text_encoder_format = str(os.getenv("TD_TEXT_ENCODER_FORMAT", "df11")).strip().lower()
@@ -68,6 +117,8 @@ def run_wan22_i2v(
             text_encoder_path=model_paths.text_encoder_path,
             prompt=prompt,
             save_path=output_path,
+            num_frames=int(num_frames),
+            fps=float(fps),
             boundary=boundary,
             num_steps=num_steps,
             sigma_max=sigma_max,

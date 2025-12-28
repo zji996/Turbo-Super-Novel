@@ -11,7 +11,7 @@
 
 ### 0.1 GPU / CUDA 版本匹配（关键）
 
-`turbo_diffusion_ops` 是 CUDA 扩展，**编译时的 nvcc 版本需要与 PyTorch 的 CUDA 版本一致**。
+`turbo_diffusion_ops` / `spas_sage_attn`（SageSLA / SpargeAttn）都是 CUDA 扩展，**编译时的 nvcc 版本需要与 PyTorch 的 CUDA 版本一致**。
 
 例如本仓库默认 worker 环境里是 `torch==2.8.0+cu128`，对应 `torch.version.cuda == 12.8`：
 
@@ -23,9 +23,12 @@ uv run --project apps/worker --directory apps/worker python -c "import torch; pr
 
 下面给出一个 **不需要 sudo** 的方案：安装 CUDA 12.8 toolkit 到用户目录，并用它来编译扩展。
 
-## 1. 一次性准备：拉齐 third_party 子模块
+## 1. 一次性准备：third_party 子模块（可选）
 
-TurboDiffusion 上游包含 `cutlass` 子模块，先初始化：
+说明：
+
+- 推理运行时已不再依赖 `third_party/TurboDiffusion`（上游 Python 代码已 vendoring 到 `libs/turbodiffusion_core`）。
+- 但如果你需要 **编译 `turbo_diffusion_ops`** 或使用上游的 `assets/` 做 smoke test，仍建议初始化子模块（上游包含 `cutlass`）：
 
 ```bash
 git submodule update --init --recursive third_party/TurboDiffusion
@@ -81,6 +84,29 @@ uv run --project apps/worker --directory apps/worker \
   python -m pip install -e ../../third_party/TurboDiffusion --no-build-isolation
 ```
 
+## 3.1 启用 SageSLA（可选，但强烈推荐）
+
+TurboDiffusion 上游 inference 默认使用 `--attention_type sagesla`（SageSLA 是基于 SageAttention 的更快 SLA forward）。
+
+本仓库会在启动 worker 时默认尝试安装 `cuda,sagesla` 依赖组；如果本机 CUDA 工具链不匹配导致 `uv sync` 失败，会自动降级为仅 `cuda`（仍可跑，但注意力算子会回退到 SLA）。
+
+如果你希望 **默认就启用 SageSLA**，需要确保使用 nvcc 12.8（与 `torch==*+cu128` 对齐），然后安装 `sagesla` 组：
+
+```bash
+export CUDA_HOME="$HOME/.local/cuda-12.8"
+export CUDACXX="$CUDA_HOME/bin/nvcc"
+export PATH="$CUDA_HOME/bin:$PATH"
+export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
+
+uv sync --project apps/worker --group sagesla
+```
+
+验证（应当能 import `spas_sage_attn`）：
+
+```bash
+uv run --project apps/worker --directory apps/worker python -c "import spas_sage_attn; print('spas_sage_attn ok')"
+```
+
 ## 4. 本地 smoke test（直接用 third_party 里的 assets）
 
 跑通标志：生成 `data/turbodiffusion/smoke/i2v_0_0.mp4`。
@@ -95,11 +121,36 @@ uv run --project apps/worker \
     --input-index 0 --prompt-index 0 --num-steps 1
 ```
 
+## 5. 彻底本地化（避免 HuggingFace 联网）
+
+TurboDiffusion 上游的 UMT5 tokenizer 默认通过 `transformers.AutoTokenizer.from_pretrained("google/umt5-xxl")` 加载；
+如果本机无法访问 `huggingface.co`，会出现日志中的重试/超时警告。
+
+本仓库已支持把 tokenizer 缓存到本地并启用离线模式：
+
+1) 下载 tokenizer 文件到 `models/`（只拉 tokenizer，不拉模型权重）：
+
+```bash
+uv run --project apps/worker scripts/cache_umt5_tokenizer.py
+```
+
+2) 在 `.env` 中开启离线并指向本地 tokenizer 目录：
+
+```bash
+TD_HF_OFFLINE=1
+TD_UMT5_TOKENIZER_DIR=<repo_root>/models/text-encoder/umt5-xxl-tokenizer
+```
+
+说明：
+
+- 也可以用 `TD_UMT5_TOKENIZER` 指定 HF repo id 或本地路径（优先级低于 `TD_UMT5_TOKENIZER_DIR`）。
+- `TD_HF_OFFLINE=1` 会设置 `HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE`，任何缺失文件都会直接报错（更容易排查）。
+
 补充：
 
 - umT5 文本编码默认走 CUDA（更快）；如果显存紧张可设置 `TD_UMT5_DEVICE=cpu`。
 
-## 5. 启动服务（API + Worker + 基础设施）
+## 6. 启动服务（API + Worker + 基础设施）
 
 基础设施（redis/pg/minio）：
 
@@ -128,7 +179,7 @@ Worker 并发（默认做了限制）：
 CELERY_CONCURRENCY=1 bash scripts/tsn_up.sh
 ```
 
-## 6. API 调用（I2V）
+## 7. API 调用（I2V）
 
 创建任务（multipart/form-data）：
 

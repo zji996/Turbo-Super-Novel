@@ -1,7 +1,43 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Job } from '../types';
+import { DEFAULT_I2V_PARAMS } from '../types';
 
 const STORAGE_KEY = 'i2v-jobs';
+
+function normalizeJob(raw: unknown): Job | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const job = raw as Partial<Job>;
+    if (typeof job.job_id !== 'string') return null;
+
+    const paramsRaw = (job as { params?: unknown }).params;
+    const params = (paramsRaw && typeof paramsRaw === 'object')
+        ? (paramsRaw as Partial<Job['params']>)
+        : {};
+
+    const inputsRaw = (job as { inputs?: unknown }).inputs;
+    const inputs = (inputsRaw && typeof inputsRaw === 'object') ? (inputsRaw as Partial<Job['inputs']>) : {};
+
+    return {
+        job_id: job.job_id,
+        job_type: job.job_type || 'i2v',
+        status: job.status || 'PENDING',
+        db_status: job.db_status,
+        output_url: job.output_url,
+        error: job.error,
+        inputs: {
+            prompt: typeof inputs.prompt === 'string' ? inputs.prompt : '',
+            image_preview: typeof inputs.image_preview === 'string' ? inputs.image_preview : undefined,
+        },
+        params: { ...DEFAULT_I2V_PARAMS, ...(params as Partial<typeof DEFAULT_I2V_PARAMS>) },
+        created_at: typeof job.created_at === 'number' ? job.created_at : Date.now(),
+        updated_at: typeof job.updated_at === 'number' ? job.updated_at : undefined,
+    };
+}
+
+function normalizeJobs(raw: unknown): Job[] {
+    if (!Array.isArray(raw)) return [];
+    return raw.map(normalizeJob).filter((job): job is Job => job !== null);
+}
 
 /**
  * Hook for persisting jobs in localStorage
@@ -11,7 +47,7 @@ export function useJobStorage() {
         try {
             const stored = localStorage.getItem(STORAGE_KEY);
             if (stored) {
-                return JSON.parse(stored) as Job[];
+                return normalizeJobs(JSON.parse(stored));
             }
         } catch (error) {
             console.error('Failed to load jobs from localStorage:', error);

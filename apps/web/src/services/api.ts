@@ -16,6 +16,7 @@ export async function createI2VJob(
     formData.append('seed', String(params.seed));
     formData.append('num_steps', String(params.num_steps));
     formData.append('quantized', String(params.quantized));
+    formData.append('duration_seconds', String(params.duration_seconds));
 
     const response = await fetch(`${API_BASE_URL}/v1/turbodiffusion/wan22-i2v/jobs`, {
         method: 'POST',

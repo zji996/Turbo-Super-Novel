@@ -20,6 +20,8 @@ export interface I2VParams {
     seed: number;
     num_steps: number;
     quantized: boolean;
+    /** Target clip duration in seconds */
+    duration_seconds: number;
 }
 
 /** Job input data */
@@ -76,4 +78,5 @@ export const DEFAULT_I2V_PARAMS: I2VParams = {
     seed: 0,
     num_steps: 4,
     quantized: true,
+    duration_seconds: 5,
 };

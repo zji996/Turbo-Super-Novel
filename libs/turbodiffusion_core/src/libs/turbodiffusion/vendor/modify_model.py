@@ -2,29 +2,15 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
-import sys
 import warnings
 from pathlib import Path
+import importlib
 
 import torch
 
 tensor_kwargs = {"device": "cuda", "dtype": torch.bfloat16}
 
 _SUPPORTED_ATTENTION_TYPES = {"original", "sla", "sagesla"}
-
-
-def _ensure_upstream_on_syspath() -> None:
-    """
-    TurboDiffusion upstream code relies on adding `<repo>/turbodiffusion` to `sys.path`,
-    so that modules like `rcm`, `imaginaire`, `SLA`, and `ops` can be imported as top-level
-    packages.
-    """
-    from libs.turbodiffusion.paths import turbodiffusion_repo_dir  # noqa: PLC0415
-
-    upstream_pkg = (turbodiffusion_repo_dir() / "turbodiffusion").resolve()
-    if str(upstream_pkg) not in sys.path:
-        sys.path.insert(0, str(upstream_pkg))
 
 
 def _ensure_torch_libs_on_ld_library_path() -> None:
@@ -36,54 +22,105 @@ def _ensure_torch_libs_on_ld_library_path() -> None:
     os.environ["LD_LIBRARY_PATH"] = f"{torch_lib}:{current}" if current else str(torch_lib)
 
 
-def _ensure_turbo_diffusion_ops_available() -> None:
+def _require_turbo_diffusion_ops() -> None:
     """
-    Make `turbo_diffusion_ops` importable without adding `third_party/TurboDiffusion` to `sys.path`.
+    Ensure `turbo_diffusion_ops` is importable.
 
-    Strategy:
-    - If already importable, do nothing.
-    - Otherwise, copy a prebuilt `turbo_diffusion_ops*.so` from `third_party/TurboDiffusion/` into
-      `data/turbodiffusion/extensions/` (gitignored) and import from there.
+    We intentionally do not load `.so` files from `third_party/` at runtime; the extension must be
+    built/installed into the worker environment (see `docs/turbodiffusion_i2v_runbook.md`).
     """
     try:
         import turbo_diffusion_ops  # noqa: F401
         return
     except ModuleNotFoundError:
-        pass
+        raise RuntimeError(
+            "`turbo_diffusion_ops` is required for quantized Wan2.2 checkpoints, but it is not available. "
+            "Fix: build and install the extension into the worker venv (see `docs/turbodiffusion_i2v_runbook.md`)."
+        ) from None
 
-    from libs.pycore.paths import data_dir  # noqa: PLC0415
-    from libs.turbodiffusion.paths import turbodiffusion_repo_dir  # noqa: PLC0415
 
-    src_dir = turbodiffusion_repo_dir()
-    candidates = sorted(src_dir.glob("turbo_diffusion_ops*.so"))
-    if not candidates:
-        return
+def _torch_apply_rotary_emb(
+    x: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+    *,
+    interleaved: bool = True,
+    inplace: bool = False,
+    **_: object,
+) -> torch.Tensor:
+    """
+    FlashAttention-compatible fallback for `flash_attn.layers.rotary.apply_rotary_emb`.
 
-    cache_dir = (data_dir() / "turbodiffusion" / "extensions").resolve()
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    if str(cache_dir) not in sys.path:
-        sys.path.insert(0, str(cache_dir))
+    Upstream TurboDiffusion uses FlashAttention's rotary embedding function but does not
+    guard against `flash_attn` being absent. This pure-PyTorch implementation is slower
+    but keeps inference functional when `flash_attn` isn't installed.
+    """
+    if x.ndim != 4:
+        raise ValueError(f"Expected x to have shape [B, S, H, D], got {tuple(x.shape)}")
 
-    src = candidates[0]
-    dst = (cache_dir / src.name).resolve()
+    batch_size, seq_len, n_heads, head_dim = x.shape
+    if head_dim % 2 != 0:
+        raise ValueError(f"Expected head_dim to be even, got {head_dim}")
+
+    if cos.ndim != 2 or sin.ndim != 2:
+        raise ValueError(f"Expected cos/sin to have shape [S, D/2], got {tuple(cos.shape)} / {tuple(sin.shape)}")
+    if cos.shape != sin.shape:
+        raise ValueError(f"cos and sin shapes must match, got {tuple(cos.shape)} vs {tuple(sin.shape)}")
+    if cos.shape[0] != seq_len:
+        raise ValueError(f"cos/sin seq_len must match x, got {cos.shape[0]} vs {seq_len}")
+
+    rotary_dim = int(cos.shape[1]) * 2
+    if rotary_dim > head_dim:
+        raise ValueError(f"rotary_dim ({rotary_dim}) exceeds head_dim ({head_dim})")
+
+    cos_b = cos.to(device=x.device, dtype=x.dtype).reshape(1, seq_len, 1, rotary_dim // 2)
+    sin_b = sin.to(device=x.device, dtype=x.dtype).reshape(1, seq_len, 1, rotary_dim // 2)
+
+    x_rot = x[..., :rotary_dim]
+    x_pass = x[..., rotary_dim:]
+
+    if interleaved:
+        x_pair = x_rot.reshape(batch_size, seq_len, n_heads, rotary_dim // 2, 2)
+        x0 = x_pair[..., 0]
+        x1 = x_pair[..., 1]
+        out0 = x0 * cos_b - x1 * sin_b
+        out1 = x0 * sin_b + x1 * cos_b
+        out_rot = torch.stack((out0, out1), dim=-1).reshape(batch_size, seq_len, n_heads, rotary_dim)
+    else:
+        x0, x1 = x_rot.chunk(2, dim=-1)
+        out_rot = torch.cat((x0 * cos_b - x1 * sin_b, x0 * sin_b + x1 * cos_b), dim=-1)
+
+    out = torch.cat((out_rot, x_pass), dim=-1) if x_pass.numel() else out_rot
+    if inplace:
+        x.copy_(out)
+        return x
+    return out
+
+
+def _ensure_flash_rope_available() -> None:
+    """
+    TurboDiffusion upstream's `rcm.networks.wan2pt{1,2}` uses FlashAttention's rotary embedding.
+
+    Those modules currently set `flash_apply_rotary_emb = None` when `flash_attn` is missing,
+    but still call it unconditionally, crashing with:
+      TypeError: 'NoneType' object is not callable
+    """
     try:
-        if dst.is_file():
-            src_stat = src.stat()
-            dst_stat = dst.stat()
-            if src_stat.st_size == dst_stat.st_size and int(src_stat.st_mtime) == int(dst_stat.st_mtime):
-                import turbo_diffusion_ops  # noqa: F401
-                return
-
-        tmp = (cache_dir / f".{src.name}.tmp").resolve()
-        shutil.copy2(src, tmp)
-        os.replace(tmp, dst)
+        from flash_attn.layers.rotary import apply_rotary_emb  # noqa: F401
     except Exception:
+        apply_rotary_emb = None  # type: ignore[assignment]
+
+    if apply_rotary_emb is not None:
         return
 
-    try:
-        import turbo_diffusion_ops  # noqa: F401
-    except Exception:
-        return
+    for module_name in ("rcm.networks.wan2pt1", "rcm.networks.wan2pt2"):
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            continue
+
+        if getattr(module, "flash_apply_rotary_emb", None) is None:
+            setattr(module, "flash_apply_rotary_emb", _torch_apply_rotary_emb)
 
 
 def _normalize_state_dict_keys(state_dict: dict[str, object]) -> dict[str, object]:
@@ -103,7 +140,7 @@ def _state_dict_uses_int8_linear(state_dict: dict[str, object]) -> bool:
 
 
 def select_model(model_name: str) -> torch.nn.Module:
-    _ensure_upstream_on_syspath()
+    _ensure_flash_rope_available()
     from rcm.utils.selective_activation_checkpoint import SACConfig  # noqa: PLC0415
     from rcm.networks.wan2pt2 import WanModel as WanModel2pt2  # noqa: PLC0415
 
@@ -151,7 +188,6 @@ def _replace_attention(*, model: torch.nn.Module, attention_type: str, sla_topk:
     if attention_type == "original":
         return model
 
-    _ensure_upstream_on_syspath()
     from SLA import SparseLinearAttention as SLA  # noqa: PLC0415
     SageSLA = None
     if attention_type == "sagesla":
@@ -186,7 +222,6 @@ def _cast_rmsnorm_weights(*, model: torch.nn.Module, dtype: torch.dtype) -> None
     Upstream `WanRMSNorm.forward()` multiplies by `self.weight` outside `type_as(x)`,
     so keeping `weight` in fp32 can make q/k float32 while v is bf16/fp16, tripping dtype asserts.
     """
-    _ensure_upstream_on_syspath()
     from rcm.networks.wan2pt2 import WanRMSNorm as WanRMSNorm2pt2  # noqa: PLC0415
 
     for module in model.modules():
@@ -267,7 +302,7 @@ def create_model(dit_path: str, args: argparse.Namespace) -> torch.nn.Module:
     This is a dev-friendly fallback to avoid building `turbo_diffusion_ops` which requires a
     CUDA toolkit version matching the PyTorch build (e.g., cu128).
     """
-    _ensure_upstream_on_syspath()
+    _ensure_flash_rope_available()
     from rcm.utils.model_utils import load_state_dict  # noqa: PLC0415
 
     with torch.device("meta"):
@@ -283,7 +318,7 @@ def create_model(dit_path: str, args: argparse.Namespace) -> torch.nn.Module:
     if _state_dict_uses_int8_linear(state_dict):
         _ensure_torch_libs_on_ld_library_path()
         try:
-            _ensure_turbo_diffusion_ops_available()
+            _require_turbo_diffusion_ops()
             import turbo_diffusion_ops  # noqa: F401
         except Exception:
             raise RuntimeError(

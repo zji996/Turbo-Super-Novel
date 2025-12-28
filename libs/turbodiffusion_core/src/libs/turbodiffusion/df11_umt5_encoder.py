@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Union
 
 import torch
 
-from libs.pycore.paths import repo_root
-from libs.turbodiffusion.paths import turbodiffusion_repo_dir
-
-
+from libs.turbodiffusion.hf import configure_hf_offline, require_local_tokenizer, umt5_tokenizer_id
 def _resolve_module(root: torch.nn.Module, dotted: str) -> torch.nn.Module:
     module: torch.nn.Module = root
     if not dotted:
@@ -44,13 +40,6 @@ def _set_buffer(module: torch.nn.Module, name: str, value: torch.Tensor) -> None
         module._buffers[name] = value
         return
     module.register_buffer(name, value)
-
-
-def _ensure_upstream_on_syspath() -> None:
-    repo_dir = turbodiffusion_repo_dir()
-    upstream_pkg = (repo_dir / "turbodiffusion").resolve()
-    if str(upstream_pkg) not in sys.path:
-        sys.path.insert(0, str(upstream_pkg))
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,11 +76,13 @@ class UMT5DF11Encoder:
 
         self._cfg = DF11Config.from_dir(self.df11_dir)
 
-        _ensure_upstream_on_syspath()
         from rcm.utils.umt5 import HuggingfaceTokenizer, umt5_xxl  # noqa: PLC0415
 
+        configure_hf_offline()
+        tokenizer_name = umt5_tokenizer_id()
+        require_local_tokenizer(tokenizer_name)
         self._tokenizer = HuggingfaceTokenizer(
-            name="google/umt5-xxl",
+            name=tokenizer_name,
             seq_len=self.max_length,
             clean="whitespace",
         )
@@ -106,17 +97,11 @@ class UMT5DF11Encoder:
         from safetensors.torch import load_file  # noqa: PLC0415
 
         try:
-            try:
-                import dfloat11  # noqa: F401
-            except ModuleNotFoundError:
-                dfloat11_repo = (repo_root() / "third_party" / "DFloat11").resolve()
-                if str(dfloat11_repo) not in sys.path:
-                    sys.path.insert(0, str(dfloat11_repo))
             from dfloat11.dfloat11 import get_hook  # noqa: PLC0415
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(
-                "DF11 text encoder requested, but `dfloat11` is not available in the worker environment. "
-                "Fix: `uv sync --project apps/worker --group df11` and restart the worker."
+                "DF11 text encoder requested, but `dfloat11` could not be imported. "
+                "Fix: `uv sync --project apps/worker` and restart the worker."
             ) from exc
 
         tensors = load_file(str(self.df11_safetensors_path))

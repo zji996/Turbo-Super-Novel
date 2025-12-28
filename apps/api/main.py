@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 import uuid
 from uuid import uuid4
@@ -16,8 +17,15 @@ from libs.turbodiffusion.paths import turbodiffusion_models_root, wan22_i2v_mode
 from celery_app import celery_app
 from s3 import ensure_bucket_exists, s3_bucket_name, s3_client
 
-app = FastAPI(title="Turbo-Super-Novel API", version="0.1.0")
+# Import new routers
+from routes import novel_router, capabilities_router
+
+app = FastAPI(title="Turbo-Super-Novel API", version="0.2.0")
 logger = logging.getLogger(__name__)
+
+# Include new routers
+app.include_router(novel_router)
+app.include_router(capabilities_router)
 
 
 @app.get("/health")
@@ -63,7 +71,32 @@ async def create_wan22_i2v_job(
     seed: int = Form(0),
     num_steps: int = Form(4),
     quantized: bool = Form(True),
+    duration_seconds: float | None = Form(None),
 ) -> dict:
+    if duration_seconds is not None:
+        fps = float((os.getenv("TD_VIDEO_FPS") or "16").strip() or "16")
+        if fps <= 0:
+            raise HTTPException(status_code=500, detail=f"Invalid TD_VIDEO_FPS: {fps}")
+        num_frames = int(round(float(duration_seconds) * fps))
+        if num_frames <= 0:
+            min_duration = 0.5 / fps
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"duration_seconds too small (computed num_frames={num_frames} with fps={fps}); "
+                    f"try duration_seconds>={min_duration:.3f}"
+                ),
+            )
+        if num_frames == 2:
+            min_duration = 2.5 / fps
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "duration_seconds too small for stable VAE encoding "
+                    f"(computed num_frames=2 with fps={fps}); try duration_seconds>={min_duration:.3f} or increase TD_VIDEO_FPS"
+                ),
+            )
+
     job_uuid = uuid4()
     job_id = str(job_uuid)
     bucket = s3_bucket_name()
@@ -117,6 +150,7 @@ async def create_wan22_i2v_job(
                 "seed": int(seed),
                 "num_steps": int(num_steps),
                 "quantized": bool(quantized),
+                "duration_seconds": float(duration_seconds) if duration_seconds is not None else None,
             },
         )
     except Exception as exc:

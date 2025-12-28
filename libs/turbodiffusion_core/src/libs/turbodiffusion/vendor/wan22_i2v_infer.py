@@ -10,19 +10,12 @@ from pathlib import Path
 import numpy as np
 import torch
 import torchvision.transforms.v2 as T
-from einops import rearrange, repeat
+from einops import repeat
 from PIL import Image
 from tqdm import tqdm
 
-from libs.pycore.paths import data_dir
-from libs.turbodiffusion.paths import turbodiffusion_repo_dir, wan22_i2v_text_encoder_df11_path
-
-
-def _ensure_upstream_on_syspath() -> None:
-    repo_dir = turbodiffusion_repo_dir()
-    upstream_pkg = (repo_dir / "turbodiffusion").resolve()
-    if str(upstream_pkg) not in sys.path:
-        sys.path.insert(0, str(upstream_pkg))
+from libs.turbodiffusion.hf import configure_hf_home, configure_hf_offline
+from libs.turbodiffusion.paths import wan22_i2v_text_encoder_df11_path
 
 
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
@@ -38,6 +31,7 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--vae_path", type=str, required=True)
     parser.add_argument("--text_encoder_path", type=str, required=True)
     parser.add_argument("--num_frames", type=int, default=77)
+    parser.add_argument("--fps", type=float, default=16)
     parser.add_argument("--prompt", type=str, required=True)
     parser.add_argument("--resolution", default="720p", type=str)
     parser.add_argument("--aspect_ratio", default="16:9", type=str)
@@ -45,7 +39,7 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ode", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--save_path", type=str, default="output/generated_video.mp4")
-    parser.add_argument("--attention_type", choices=["original", "sla", "sagesla"], default="original")
+    parser.add_argument("--attention_type", choices=["original", "sla", "sagesla"], default="sagesla")
     parser.add_argument("--sla_topk", type=float, default=0.1)
     parser.add_argument("--quant_linear", action="store_true")
     parser.add_argument("--default_norm", action="store_true")
@@ -124,12 +118,16 @@ def _get_text_embedding(
     max_length: int,
     resident: bool,
 ) -> torch.Tensor:
+    from imaginaire.utils import log  # noqa: PLC0415
+
     text_encoder_format = str(os.getenv("TD_TEXT_ENCODER_FORMAT", "df11")).strip().lower()
     if text_encoder_format == "df11":
         df11_path = wan22_i2v_text_encoder_df11_path()
         if not df11_path.is_file():
             print(f"[warn] DF11 text encoder file missing; falling back to bf16: {df11_path}", file=sys.stderr)
             text_encoder_format = "bf16"
+        else:
+            log.info(f"Using DF11 text encoder (umt5-xxl, device={device}, max_length={max_length})")
 
     if text_encoder_format == "df11":
         try:
@@ -142,9 +140,11 @@ def _get_text_embedding(
                 if _RESIDENT_DF11_TEXT is not None:
                     cached_path, cached_device, cached_len, encoder = _RESIDENT_DF11_TEXT
                     if cached_path == df11_path and cached_device == device and int(cached_len) == int(max_length):
+                        log.info("Reusing resident DF11 text encoder")
                         return encoder(prompt)  # type: ignore[call-arg]
 
                 try:
+                    log.info(f"Loading DF11 text encoder weights: {df11_path}")
                     encoder = UMT5DF11Encoder(
                         df11_dir=df11_path.parent,
                         df11_safetensors_path=df11_path,
@@ -158,7 +158,7 @@ def _get_text_embedding(
                         _RESIDENT_DF11_TEXT = (df11_path, device, int(max_length), encoder)
                     return encoder(prompt)
 
-    from rcm.utils.umt5 import clear_umt5_memory, get_umt5_embedding  # noqa: PLC0415
+    from libs.turbodiffusion.umt5_bf16_encoder import clear_umt5_memory, get_umt5_embedding  # noqa: PLC0415
 
     emb = get_umt5_embedding(checkpoint_path=str(checkpoint_path), prompts=prompt, device=device, max_length=max_length)
     if not resident:
@@ -177,19 +177,19 @@ def generate_wan22_i2v(
     text_encoder_path: Path,
     prompt: str,
     save_path: Path,
+    num_frames: int = 77,
+    fps: float = 16,
     boundary: float = 0.9,
     num_steps: int = 4,
     sigma_max: float = 200.0,
     seed: int = 0,
-    attention_type: str = "original",
+    attention_type: str = "sagesla",
     sla_topk: float = 0.1,
     resolution: str = "720p",
     aspect_ratio: str = "16:9",
     adaptive_resolution: bool = True,
     ode: bool = True,
 ) -> Path:
-    _ensure_upstream_on_syspath()
-
     from imaginaire.utils.io import save_image_or_video  # noqa: PLC0415
     from imaginaire.utils import log  # noqa: PLC0415
     from rcm.datasets.utils import VIDEO_RES_SIZE_INFO  # noqa: PLC0415
@@ -197,8 +197,8 @@ def generate_wan22_i2v(
 
     from .modify_model import tensor_kwargs, create_model  # noqa: PLC0415
 
-    if os.getenv("HF_HOME") is None:
-        os.environ["HF_HOME"] = str((data_dir() / "hf").resolve())
+    configure_hf_home()
+    configure_hf_offline()
 
     resident_gpu = _env_bool("TD_RESIDENT_GPU", False)
 
@@ -261,7 +261,20 @@ def generate_wan22_i2v(
     else:
         w, h = VIDEO_RES_SIZE_INFO[resolution][aspect_ratio]
 
-    F = 77
+    requested_f = int(num_frames)
+    if requested_f <= 0:
+        raise ValueError(f"num_frames must be > 0, got {num_frames}")
+    if requested_f == 2:
+        raise ValueError("num_frames=2 is unsupported due to VAE temporal kernel; use 1 or >=3")
+    # The upstream VAE encoder chunks frames with a fixed window and relies on cache.
+    # Certain `num_frames` values can lead to Conv3D kernel>input errors in downstream
+    # temporal downsample blocks; padding to `1 + 4k` keeps chunk boundaries stable.
+    if requested_f > 1 and (requested_f - 1) % 4 != 0:
+        padded_f = 1 + 4 * ((requested_f - 1 + 3) // 4)
+        log.warning("num_frames=%s is not aligned to 1+4k; padding to %s frames for VAE stability", requested_f, padded_f)
+        F = int(padded_f)
+    else:
+        F = int(requested_f)
     lat_h = h // tokenizer.spatial_compression_factor
     lat_w = w // tokenizer.spatial_compression_factor
     lat_t = tokenizer.get_latent_num_frames(F)
@@ -341,7 +354,7 @@ def generate_wan22_i2v(
     to_show = (1.0 + video.float().cpu().clamp(-1, 1)) / 2.0
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_image_or_video(to_show[0], str(save_path), fps=16)
+    save_image_or_video(to_show[0], str(save_path), fps=float(fps))
 
     return save_path
 
@@ -356,6 +369,8 @@ def main() -> int:
         text_encoder_path=Path(args.text_encoder_path),
         prompt=args.prompt,
         save_path=Path(args.save_path),
+        num_frames=int(args.num_frames),
+        fps=float(args.fps),
         boundary=float(args.boundary),
         num_steps=int(args.num_steps),
         sigma_max=float(args.sigma_max),

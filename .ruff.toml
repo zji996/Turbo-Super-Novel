@@ -1,0 +1,5 @@
+exclude = [
+  "libs/turbodiffusion_core/src/rcm",
+  "libs/turbodiffusion_core/src/imaginaire",
+  "libs/turbodiffusion_core/src/SLA",
+]

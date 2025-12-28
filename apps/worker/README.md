@@ -30,6 +30,12 @@ GPU/FlashAttention（可选）：
 uv sync --project apps/worker --group cuda
 ```
 
+如果使用 `bash scripts/tsn_up.sh` / `bash scripts/tsn_manage.sh start worker` 启动，默认会为 worker 安装 `cuda,sagesla` 依赖组（失败会自动降级为仅 `cuda`）；可通过 `.env` 覆盖：
+
+- `TSN_WORKER_UV_GROUPS=cuda,sagesla`（默认，优先启用 SageSLA）
+- `TSN_WORKER_UV_GROUPS=cuda`（只安装 FlashAttention 等）
+- `TSN_WORKER_UV_GROUPS=`（不安装任何额外组）
+
 SageAttention / SageSLA（可选）：
 
 TurboDiffusion 的 `sagesla` 依赖 SpargeAttn（Python 包名 `spas_sage_attn`，包含 CUDA 扩展）。已在 worker 中提供可选依赖组 `sagesla`：
@@ -38,7 +44,7 @@ TurboDiffusion 的 `sagesla` 依赖 SpargeAttn（Python 包名 `spas_sage_attn`�
 uv sync --project apps/worker --group sagesla
 ```
 
-注意：该扩展需要本机 `nvcc` 版本与当前 PyTorch 的 CUDA 版本一致；否则会在编译阶段报 CUDA mismatch（和 `flash-attn` 源码编译类似）。
+注意：该扩展需要本机 `nvcc` 版本与当前 PyTorch 的 CUDA 版本一致；否则会在编译阶段报 CUDA mismatch。解决方法见 `docs/turbodiffusion_i2v_runbook.md:0`（安装匹配版本的 CUDA toolkit 并设置 `CUDA_HOME/CUDACXX`）。
 
 依赖：
 
