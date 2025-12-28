@@ -28,17 +28,16 @@ dependencies = [
   "attrs",
   "fvcore",
   "nvidia-ml-py",
-  # DF11 runtime deps (used by Wan2.2 text encoder path when TD_TEXT_ENCODER_FORMAT=df11).
-  "accelerate",
-  "dahuffman==0.4.2",
-  "safetensors",
-  "cupy-cuda12x",
+  # DF11 runtime (used by Wan2.2 text encoder path when TD_TEXT_ENCODER_FORMAT=df11).
+  "dfloat11[cuda12]",
 ]
 
 [tool.uv.sources]
 py_core = { path = "../../libs/pycore", editable = true }
 td_core = { path = "../../libs/turbodiffusion_core", editable = true }
 db_core = { path = "../../libs/dbcore", editable = true }
+dfloat11 = { path = "../../libs/dfloat11", editable = true }
+turbo_diffusion_ops = { path = "../../libs/turbo_diffusion_ops", editable = true }
 
 [dependency-groups]
 dev = [
@@ -49,6 +48,7 @@ cuda = [
   "torch<2.9",
   "torchvision<0.24",
   "flash-attn",
+  "turbo_diffusion_ops",
 ]
 sagesla = [
   "spas-sage-attn @ git+https://github.com/thu-ml/SpargeAttn.git",

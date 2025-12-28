@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from libs.pycore.paths import data_dir, models_dir
+from libs.pycore.paths import data_dir
+from libs.turbodiffusion.paths import turbodiffusion_models_root
 
 
 def env_bool(key: str, default: bool = False) -> bool:
@@ -42,9 +43,10 @@ def configure_hf_offline() -> bool:
 
 
 def default_umt5_tokenizer_dir() -> Path:
+    root = turbodiffusion_models_root()
     candidates = [
-        (models_dir() / "text-encoder" / "umt5-xxl-tokenizer").resolve(),
-        (models_dir() / "text-encoder-df11" / "umt5-xxl-tokenizer").resolve(),
+        (root / "text-encoder" / "umt5-xxl-tokenizer").resolve(),
+        (root / "text-encoder-df11" / "umt5-xxl-tokenizer").resolve(),
     ]
     for path in candidates:
         if path.is_dir():
@@ -90,8 +92,9 @@ def require_local_tokenizer(tokenizer_id: str) -> None:
     if maybe_path.is_dir():
         return
 
-    default_te = (models_dir() / "text-encoder" / "umt5-xxl-tokenizer").resolve()
-    default_df11 = (models_dir() / "text-encoder-df11" / "umt5-xxl-tokenizer").resolve()
+    root = turbodiffusion_models_root()
+    default_te = (root / "text-encoder" / "umt5-xxl-tokenizer").resolve()
+    default_df11 = (root / "text-encoder-df11" / "umt5-xxl-tokenizer").resolve()
     raise RuntimeError(
         "UMT5 tokenizer is missing. This project does not auto-download tokenizers at runtime. "
         "Fix: download it with `uv run --project apps/worker scripts/cache_umt5_tokenizer.py` "

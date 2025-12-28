@@ -23,16 +23,13 @@ uv run --project apps/worker --directory apps/worker python -c "import torch; pr
 
 下面给出一个 **不需要 sudo** 的方案：安装 CUDA 12.8 toolkit 到用户目录，并用它来编译扩展。
 
-## 1. 一次性准备：third_party 子模块（可选）
+## 1. 一次性准备：CUDA 工具链 + CUTLASS（用于构建 turbo_diffusion_ops）
 
 说明：
 
-- 推理运行时已不再依赖 `third_party/TurboDiffusion`（上游 Python 代码已 vendoring 到 `libs/turbodiffusion_core`）。
-- 但如果你需要 **编译 `turbo_diffusion_ops`** 或使用上游的 `assets/` 做 smoke test，仍建议初始化子模块（上游包含 `cutlass`）：
-
-```bash
-git submodule update --init --recursive third_party/TurboDiffusion
-```
+- 推理运行时不依赖 `third_party/`：上游 Python 代码已 vendoring 到 `libs/turbodiffusion_core`。
+- 量化权重需要 `turbo_diffusion_ops`（CUDA 扩展），其构建依赖 CUTLASS。
+- 本仓库默认会把 CUTLASS 下载/解压到 `data/cutlass-v4.3.0`（或你也可手动设置 `CUTLASS_DIR` 指向任意 CUTLASS v4.3.0 checkout）。
 
 ## 2. 安装 CUDA 12.8 toolkit（含 nvcc 12.8，免 sudo）
 
@@ -57,7 +54,13 @@ data/cuda_installers/cuda_12.8.1_570.124.06_linux.run \
 
 ## 3. 编译并安装 `turbo_diffusion_ops`（限制编译并行度）
 
-`turbo_diffusion_ops` 随 `third_party/TurboDiffusion` 一起安装/构建。
+`turbo_diffusion_ops` 的源码已 vendoring 到 `libs/turbo_diffusion_ops`，推理运行时不依赖子模块源码。
+
+仓库已提供一个一键脚本（会自动选择匹配 `torch.version.cuda` 的 `~/.local/cuda-<version>`）：
+
+```bash
+bash scripts/build_turbodiffusion_ops.sh
+```
 
 建议设置：
 
@@ -71,6 +74,7 @@ export PATH="$CUDA_HOME/bin:$PATH"
 export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
 export MAX_JOBS=5
 export USE_NINJA=1
+export CUTLASS_DIR="<repo_root>/data/cutlass-v4.3.0"
 
 # 确保 worker venv 里有 pip / ninja
 uv run --project apps/worker --directory apps/worker python -m ensurepip --upgrade
@@ -79,9 +83,9 @@ uv run --project apps/worker --directory apps/worker python -m pip install -U pi
 # torch 的动态库目录加入 LD_LIBRARY_PATH（避免 import 扩展时报 libc10.so 找不到）
 export LD_LIBRARY_PATH="$(uv run --project apps/worker --directory apps/worker python -c "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))"):$LD_LIBRARY_PATH"
 
-# 编译并安装 TurboDiffusion（会构建 turbo_diffusion_ops）
+# 编译并安装 turbo_diffusion_ops
 uv run --project apps/worker --directory apps/worker \
-  python -m pip install -e ../../third_party/TurboDiffusion --no-build-isolation
+  python -m pip install -e ../../libs/turbo_diffusion_ops --no-build-isolation
 ```
 
 ## 3.1 启用 SageSLA（可选，但强烈推荐）
@@ -107,7 +111,7 @@ uv sync --project apps/worker --group sagesla
 uv run --project apps/worker --directory apps/worker python -c "import spas_sage_attn; print('spas_sage_attn ok')"
 ```
 
-## 4. 本地 smoke test（直接用 third_party 里的 assets）
+## 4. 本地 smoke test
 
 跑通标志：生成 `data/turbodiffusion/smoke/i2v_0_0.mp4`。
 
@@ -117,7 +121,6 @@ export TOKENIZERS_PARALLELISM=false
 
 uv run --project apps/worker \
   python scripts/smoke_turbodiffusion_i2v.py \
-    --inputs-dir third_party/TurboDiffusion/assets/i2v_inputs \
     --input-index 0 --prompt-index 0 --num-steps 1
 ```
 
@@ -128,7 +131,7 @@ TurboDiffusion 上游的 UMT5 tokenizer 默认通过 `transformers.AutoTokenizer
 
 本仓库已支持把 tokenizer 缓存到本地并启用离线模式：
 
-1) 下载 tokenizer 文件到 `models/`（只拉 tokenizer，不拉模型权重）：
+1) 下载 tokenizer 文件到 `models/2v/`（只拉 tokenizer，不拉模型权重）：
 
 ```bash
 uv run --project apps/worker scripts/cache_umt5_tokenizer.py
@@ -138,7 +141,7 @@ uv run --project apps/worker scripts/cache_umt5_tokenizer.py
 
 ```bash
 TD_HF_OFFLINE=1
-TD_UMT5_TOKENIZER_DIR=<repo_root>/models/text-encoder/umt5-xxl-tokenizer
+TD_UMT5_TOKENIZER_DIR=<repo_root>/models/2v/text-encoder/umt5-xxl-tokenizer
 ```
 
 说明：

@@ -19,8 +19,8 @@ bash scripts/tsn_up.sh
 
 DF11 文本编码器（默认支持）：
 
-- Worker 默认包含 DF11 运行时依赖（`cupy-cuda12x` / `safetensors` / `dahuffman` 等）。
-- 若存在 `models/text-encoder-df11/models_t5_umt5-xxl-enc-df11.safetensors` 且 `TD_TEXT_ENCODER_FORMAT=df11`，推理会优先使用 DF11；否则自动回退到 BF16 `.pth`。
+- Worker 通过本仓库的 `dfloat11[cuda12]` 包提供 DF11 运行时依赖（`cupy-cuda12x` / `safetensors` / `dahuffman` 等）。
+- 若存在 `models/2v/text-encoder-df11/models_t5_umt5-xxl-enc-df11.safetensors` 且 `TD_TEXT_ENCODER_FORMAT=df11`，推理会优先使用 DF11；否则自动回退到 BF16 `.pth`。
 
 GPU/FlashAttention（可选）：
 
@@ -50,7 +50,8 @@ uv sync --project apps/worker --group sagesla
 
 - Redis：作为 Celery broker/result backend
 - MinIO/S3：输入图片与输出视频存储
-- TurboDiffusion + GPU 依赖：用于实际推理（见 `third_party/TurboDiffusion/README.md`）
+- TurboDiffusion 推理代码：已 vendoring 到 `libs/turbodiffusion_core`
+- `turbo_diffusion_ops`：量化 Wan2.2 权重需要（CUDA 扩展，构建说明见 `docs/turbodiffusion_i2v_runbook.md`）
 
 ## Test
 

@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: turbo_diffusion_ops
+Version: 0.1.0
+Summary: TurboDiffusion CUDA extension ops (int8 quant/gemm + norm kernels)
+Requires-Python: <3.14,>=3.12
+Requires-Dist: torch>=2.7.0

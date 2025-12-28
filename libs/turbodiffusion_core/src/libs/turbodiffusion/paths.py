@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from libs.pycore.paths import models_dir, repo_root
+from libs.pycore.paths import models_dir
 
 
 TurboDiffusionModelName = Literal["TurboWan2.2-I2V-A14B-720P"]
@@ -22,10 +22,43 @@ def turbodiffusion_models_root() -> Path:
     """
     Root directory that contains TurboDiffusion-related model artifacts.
 
-    Repo convention: keep TurboDiffusion artifacts directly under `models/`,
-    without an extra `turbodiffusion/` layer and without `checkpoints/`.
+    Repo convention (2025-12): keep TurboDiffusion artifacts under `models/2v/`
+    to make it explicit that these weights produce "to-video" outputs.
+
+    Backward compatible: if `models/2v/` does not exist but legacy directories are
+    found under `models/`, we keep using the legacy layout.
     """
-    return models_dir().resolve()
+    root = models_dir().resolve()
+    v2_root = (root / "2v").resolve()
+
+    legacy_markers = (
+        root / "vae",
+        root / "text-encoder",
+        root / "text-encoder-df11",
+        root / "wan2.2-i2v-quant",
+        root / "wan2.2-i2v",
+    )
+
+    v2_markers = (
+        v2_root / "vae",
+        v2_root / "text-encoder",
+        v2_root / "text-encoder-df11",
+        v2_root / "wan2.2-i2v-quant",
+        v2_root / "wan2.2-i2v",
+    )
+
+    # Prefer the new layout only when it actually contains TurboDiffusion artifacts, so that
+    # an empty pre-created `models/2v/` directory doesn't break existing installs.
+    if v2_root.is_dir():
+        if any(p.exists() for p in v2_markers):
+            return v2_root
+        if any(p.exists() for p in legacy_markers):
+            return root
+        return v2_root
+    if any(p.exists() for p in legacy_markers):
+        return root
+
+    return v2_root
 
 
 def wan22_i2v_text_encoder_df11_dir() -> Path:
@@ -52,7 +85,3 @@ def wan22_i2v_model_paths(*, quantized: bool = True) -> Wan22I2VModelPaths:
             / f"TurboWan2.2-I2V-A14B-low-720P{suffix}.pth"
         ).resolve(),
     )
-
-
-def turbodiffusion_repo_dir() -> Path:
-    return (repo_root() / "third_party" / "TurboDiffusion").resolve()

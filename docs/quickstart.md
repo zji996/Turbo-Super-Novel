@@ -6,13 +6,6 @@
 
 - Linux + NVIDIA GPU（已安装驱动，`nvidia-smi` 可用）
 - `uv`、`docker`、`docker compose`
-- 首次使用需初始化子模块：`third_party/TurboDiffusion`
-
-## 1. 一次性准备：子模块
-
-```bash
-git submodule update --init --recursive third_party/TurboDiffusion
-```
 
 ## 2. 配置环境变量（推荐：统一用根目录 .env）
 
@@ -43,17 +36,23 @@ uv sync --project apps/api
 uv sync --project apps/worker -p python3.12
 ```
 
-## 5. 下载模型到本机（写入 models/）
+## 5. 下载模型到本机（写入 models/2v/）
 
-默认会下载量化（quant）权重，并写入 `models/` 下的职责目录：
+默认会下载量化（quant）权重，并写入 `models/2v/` 下的职责目录：
 
-- `models/vae/Wan2.1_VAE.pth`
-- `models/text-encoder/models_t5_umt5-xxl-enc-bf16.pth`
-- `models/wan2.2-i2v-quant/TurboWan2.2-I2V-A14B-*-720P-quant.pth`
+- `models/2v/vae/Wan2.1_VAE.pth`
+- `models/2v/text-encoder/models_t5_umt5-xxl-enc-bf16.pth`
+- `models/2v/wan2.2-i2v-quant/TurboWan2.2-I2V-A14B-*-720P-quant.pth`
 
 ```bash
 uv run --project apps/api scripts/download_turbodiffusion_models.py \
   --model TurboWan2.2-I2V-A14B-720P --quantized
+```
+
+如果你之前已经把权重下载到了旧目录结构（`models/*`），可以一键迁移到新结构（`models/2v/*`）：
+
+```bash
+uv run --project apps/worker scripts/migrate_turbodiffusion_models_to_2v.py
 ```
 
 ## 6.（推荐）编译 turbo_diffusion_ops（量化权重需要）

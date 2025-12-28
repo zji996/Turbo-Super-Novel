@@ -1,5 +1,5 @@
 [project]
-name = "ttscore"
+name = "tts_core"
 version = "0.1.0"
 description = "TTS abstraction layer with pluggable providers"
 readme = "README.md"

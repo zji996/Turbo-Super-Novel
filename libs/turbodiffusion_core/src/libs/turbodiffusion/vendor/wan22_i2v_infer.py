@@ -53,6 +53,24 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _gpu_mode_defaults() -> tuple[bool, bool]:
+    """
+    Return (resident_gpu_default, cuda_cleanup_default) derived from GPU_MODE.
+
+    GPU_MODE is a higher-level switch typically expanded by `scripts/tsn_manage.sh`. When users
+    only export GPU_MODE (e.g. via IDE envFile) but not the derived TD_* vars, we still want
+    predictable behavior.
+    """
+    mode = str(os.getenv("GPU_MODE", "")).strip().lower()
+    if mode == "fast":
+        return True, False
+    if mode == "balanced":
+        return False, True
+    if mode == "lowvram":
+        return False, True
+    return False, True
+
+
 _RESIDENT_LOCK = threading.Lock()
 _TEXT_ENCODER_LOCK = threading.Lock()
 _RESIDENT_DIT: tuple[Path, Path, str, float, torch.nn.Module, torch.nn.Module] | None = None
@@ -200,7 +218,8 @@ def generate_wan22_i2v(
     configure_hf_home()
     configure_hf_offline()
 
-    resident_gpu = _env_bool("TD_RESIDENT_GPU", False)
+    resident_default, _ = _gpu_mode_defaults()
+    resident_gpu = _env_bool("TD_RESIDENT_GPU", resident_default)
 
     log.info(f"Computing embedding for prompt: {prompt}")
     umt5_device = os.getenv("TD_UMT5_DEVICE", "cuda")
@@ -271,7 +290,7 @@ def generate_wan22_i2v(
     # temporal downsample blocks; padding to `1 + 4k` keeps chunk boundaries stable.
     if requested_f > 1 and (requested_f - 1) % 4 != 0:
         padded_f = 1 + 4 * ((requested_f - 1 + 3) // 4)
-        log.warning("num_frames=%s is not aligned to 1+4k; padding to %s frames for VAE stability", requested_f, padded_f)
+        log.warning(f"num_frames={requested_f} is not aligned to 1+4k; padding to {padded_f} frames for VAE stability")
         F = int(padded_f)
     else:
         F = int(requested_f)
@@ -351,6 +370,8 @@ def generate_wan22_i2v(
         torch.cuda.empty_cache()
 
     video = tokenizer.decode(samples)
+    if requested_f != F:
+        video = video[:, :, : min(requested_f, int(video.shape[2])), :, :]
     to_show = (1.0 + video.float().cpu().clamp(-1, 1)) / 2.0
 
     save_path.parent.mkdir(parents=True, exist_ok=True)

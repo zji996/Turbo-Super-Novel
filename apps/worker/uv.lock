@@ -263,6 +263,44 @@ dev = [
 ]
 
 [[package]]
+name = "dfloat11"
+version = "0.5.0"
+source = { editable = "../../libs/dfloat11" }
+dependencies = [
+    { name = "accelerate" },
+    { name = "dahuffman" },
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "tqdm" },
+]
+
+[package.optional-dependencies]
+cuda12 = [
+    { name = "cupy-cuda12x" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate" },
+    { name = "cupy-cuda12x", marker = "extra == 'cuda12'" },
+    { name = "dahuffman", specifier = "==0.4.2" },
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "tqdm" },
+]
+provides-extras = ["cuda12"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
 name = "einops"
 version = "0.8.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1444,13 +1482,11 @@ name = "tsn-worker"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "accelerate" },
     { name = "attrs" },
     { name = "boto3" },
     { name = "celery" },
-    { name = "cupy-cuda12x" },
-    { name = "dahuffman" },
     { name = "db-core" },
+    { name = "dfloat11", extra = ["cuda12"] },
     { name = "einops" },
     { name = "ftfy" },
     { name = "fvcore" },
@@ -1465,7 +1501,6 @@ dependencies = [
     { name = "pyyaml" },
     { name = "redis" },
     { name = "regex" },
-    { name = "safetensors" },
     { name = "td-core" },
     { name = "torch" },
     { name = "torchvision" },
@@ -1479,6 +1514,7 @@ cuda = [
     { name = "flash-attn" },
     { name = "torch" },
     { name = "torchvision" },
+    { name = "turbo-diffusion-ops" },
 ]
 dev = [
     { name = "pytest" },
@@ -1490,13 +1526,11 @@ sagesla = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate" },
     { name = "attrs" },
     { name = "boto3", specifier = ">=1.34" },
     { name = "celery", specifier = ">=5.4" },
-    { name = "cupy-cuda12x" },
-    { name = "dahuffman", specifier = "==0.4.2" },
     { name = "db-core", editable = "../../libs/dbcore" },
+    { name = "dfloat11", extras = ["cuda12"], editable = "../../libs/dfloat11" },
     { name = "einops" },
     { name = "ftfy" },
     { name = "fvcore" },
@@ -1511,7 +1545,6 @@ requires-dist = [
     { name = "pyyaml" },
     { name = "redis", specifier = ">=5.0" },
     { name = "regex" },
-    { name = "safetensors" },
     { name = "td-core", editable = "../../libs/turbodiffusion_core" },
     { name = "torch", specifier = ">=2.8" },
     { name = "torchvision", specifier = ">=0.23" },
@@ -1525,12 +1558,24 @@ cuda = [
     { name = "flash-attn" },
     { name = "torch", specifier = "<2.9" },
     { name = "torchvision", specifier = "<0.24" },
+    { name = "turbo-diffusion-ops", editable = "../../libs/turbo_diffusion_ops" },
 ]
 dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.6" },
 ]
 sagesla = [{ name = "spas-sage-attn", git = "https://github.com/thu-ml/SpargeAttn.git" }]
+
+[[package]]
+name = "turbo-diffusion-ops"
+version = "0.1.0"
+source = { editable = "../../libs/turbo_diffusion_ops" }
+dependencies = [
+    { name = "torch" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "torch", specifier = ">=2.7.0" }]
 
 [[package]]
 name = "typing-extensions"

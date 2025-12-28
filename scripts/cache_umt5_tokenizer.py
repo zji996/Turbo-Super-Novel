@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from libs.pycore.paths import models_dir
+from libs.turbodiffusion.paths import turbodiffusion_models_root
 
 
 def parse_args() -> argparse.Namespace:
@@ -11,8 +11,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo-id", default="google/umt5-xxl", help="HuggingFace repo id (default: google/umt5-xxl)")
     parser.add_argument(
         "--out-dir",
-        default=str((models_dir() / "text-encoder" / "umt5-xxl-tokenizer").resolve()),
-        help="Output directory for tokenizer files (default: <MODELS_DIR>/text-encoder/umt5-xxl-tokenizer)",
+        default=str((turbodiffusion_models_root() / "text-encoder" / "umt5-xxl-tokenizer").resolve()),
+        help="Output directory for tokenizer files (default: <MODELS_DIR>/2v/text-encoder/umt5-xxl-tokenizer)",
     )
     parser.add_argument("--revision", default=None, help="Optional HF revision (tag/commit)")
     return parser.parse_args()
@@ -55,4 +55,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

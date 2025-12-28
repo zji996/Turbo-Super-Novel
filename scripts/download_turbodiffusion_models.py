@@ -7,8 +7,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from libs.pycore.paths import models_dir
 from libs.turbodiffusion.registry import iter_artifacts
+from libs.turbodiffusion.paths import turbodiffusion_models_root
 
 
 def _format_bytes(value: int) -> str:
@@ -64,13 +64,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Print planned downloads without downloading")
     args = parser.parse_args(argv)
 
-    root = models_dir().resolve()
+    root = turbodiffusion_models_root().resolve()
     groups = tuple(part.strip() for part in str(args.groups).split(",") if part.strip())
     planned = list(iter_artifacts(args.model, quantized=bool(args.quantized), groups=groups))  # type: ignore[arg-type]
 
-    print(f"MODELS_DIR={root}")
+    print(f"TurboDiffusion models root={root}")
     if os.getenv("MODELS_DIR"):
-        print("MODELS_DIR is set via env var.")
+        print("MODELS_DIR is set via env var (TurboDiffusion uses MODELS_DIR/2v by default).")
     print(f"planned={len(planned)} files")
 
     for artifact in planned:
@@ -88,4 +88,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

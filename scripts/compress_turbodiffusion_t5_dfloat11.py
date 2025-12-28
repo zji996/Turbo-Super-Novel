@@ -1,26 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import torch
 
-from libs.pycore.paths import repo_root
-from libs.turbodiffusion.paths import turbodiffusion_repo_dir, wan22_i2v_model_paths
-
-
-def _ensure_upstream_on_syspath() -> None:
-    repo_dir = turbodiffusion_repo_dir()
-    upstream_pkg = (repo_dir / "turbodiffusion").resolve()
-    if str(upstream_pkg) not in sys.path:
-        sys.path.insert(0, str(upstream_pkg))
-
-
-def _ensure_dfloat11_on_syspath() -> None:
-    dfloat11_repo = (repo_root() / "third_party" / "DFloat11").resolve()
-    if str(dfloat11_repo) not in sys.path:
-        sys.path.insert(0, str(dfloat11_repo))
+from libs.turbodiffusion.paths import wan22_i2v_model_paths
 
 
 def _load_state_dict(path: Path) -> dict:
@@ -50,8 +35,6 @@ def _build_pattern_dict_for_umt5_encoder() -> dict[str, list[str]]:
 
 
 def _load_umt5_xxl_encoder_model(*, ckpt_path: Path) -> torch.nn.Module:
-    _ensure_upstream_on_syspath()
-
     from rcm.utils.umt5 import umt5_xxl
 
     state_dict = _load_state_dict(ckpt_path)
@@ -112,9 +95,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         from dfloat11 import compress_model  # type: ignore[import-not-found]
-    except Exception:
-        _ensure_dfloat11_on_syspath()
-        from dfloat11 import compress_model  # type: ignore[import-not-found]
+    except Exception as exc:
+        raise SystemExit(
+            "Failed to import `dfloat11`. Run this script with the worker environment, e.g.\n"
+            "  uv run --project apps/worker scripts/compress_turbodiffusion_t5_dfloat11.py\n"
+        ) from exc
 
     model = _load_umt5_xxl_encoder_model(ckpt_path=ckpt_path)
 

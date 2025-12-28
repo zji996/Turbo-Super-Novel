@@ -1,5 +1,5 @@
 [project]
-name = "imagegencore"
+name = "imagegen_core"
 version = "0.1.0"
 description = "Image generation abstraction layer with pluggable providers"
 readme = "README.md"

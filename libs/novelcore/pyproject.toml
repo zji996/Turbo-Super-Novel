@@ -1,5 +1,5 @@
 [project]
-name = "novelcore"
+name = "novel_core"
 version = "0.1.0"
 description = "Novel video project management and pipeline orchestration"
 readme = "README.md"

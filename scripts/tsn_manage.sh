@@ -131,10 +131,17 @@ maybe_uv_sync() {
     return 0
   fi
   local group_args=()
+  local sync_args=()
   local groups=""
   local cuda_home=""
   local cudacxx=""
+  local cutlass_dir=""
   if [[ "$project_dir" == "apps/worker" ]]; then
+    # When TurboDiffusion ops are enabled, keep extra packages (like editable builds) instead of pruning them.
+    if [[ "${TSN_BUILD_TD_OPS:-0}" == "1" ]]; then
+      sync_args+=(--inexact)
+    fi
+
     # Worker is GPU inference oriented; default to installing the `cuda` group to enable FlashAttention etc.
     # Override examples:
     #   TSN_WORKER_UV_GROUPS=cuda,sagesla   # install both groups
@@ -156,6 +163,30 @@ maybe_uv_sync() {
       cudacxx="$cuda_home/bin/nvcc"
     fi
 
+    # CUTLASS is required to build `turbo_diffusion_ops` (used by quantized Wan2.2 checkpoints).
+    cutlass_dir="${CUTLASS_DIR:-$DATA_DIR/cutlass-v4.3.0}"
+    if [[ ! -d "$cutlass_dir/include" ]]; then
+      mkdir -p "$DATA_DIR"
+      if ! command -v curl >/dev/null 2>&1; then
+        echo "missing command: curl (required to fetch CUTLASS)" >&2
+        exit 127
+      fi
+      if ! command -v tar >/dev/null 2>&1; then
+        echo "missing command: tar (required to extract CUTLASS)" >&2
+        exit 127
+      fi
+      echo "[info] CUTLASS not found; downloading v4.3.0 into $cutlass_dir" >&2
+      rm -rf "$cutlass_dir"
+      local cutlass_tgz="$DATA_DIR/cutlass-v4.3.0.tar.gz"
+      local cutlass_tmp="$DATA_DIR/.cutlass-v4.3.0.tmp"
+      rm -rf "$cutlass_tmp" "$cutlass_tgz"
+      curl -L --fail -o "$cutlass_tgz" "https://codeload.github.com/NVIDIA/cutlass/tar.gz/refs/tags/v4.3.0"
+      mkdir -p "$cutlass_tmp"
+      tar -xzf "$cutlass_tgz" -C "$cutlass_tmp"
+      mv "$cutlass_tmp"/cutlass-* "$cutlass_dir"
+      rm -rf "$cutlass_tmp" "$cutlass_tgz"
+    fi
+
     if [[ -n "$groups" ]]; then
       local g
       IFS=',' read -r -a _tsn_groups <<<"$groups"
@@ -168,11 +199,11 @@ maybe_uv_sync() {
     fi
   fi
   if [[ -n "$cuda_home" || -n "$cudacxx" ]]; then
-    if CUDA_HOME="$cuda_home" CUDACXX="$cudacxx" "$UV_BIN" sync --project "$project_dir" "${group_args[@]}"; then
+    if CUDA_HOME="$cuda_home" CUDACXX="$cudacxx" CUTLASS_DIR="$cutlass_dir" "$UV_BIN" sync "${sync_args[@]}" --project "$project_dir" "${group_args[@]}"; then
       return 0
     fi
   else
-    if "$UV_BIN" sync --project "$project_dir" "${group_args[@]}"; then
+    if CUTLASS_DIR="$cutlass_dir" "$UV_BIN" sync "${sync_args[@]}" --project "$project_dir" "${group_args[@]}"; then
       return 0
     fi
   fi
@@ -181,9 +212,9 @@ maybe_uv_sync() {
   if [[ "$project_dir" == "apps/worker" && "$groups" == *"sagesla"* ]]; then
     echo "[warn] uv sync for worker failed with TSN_WORKER_UV_GROUPS='${groups}'; retrying without 'sagesla'." >&2
     if [[ -n "$cuda_home" || -n "$cudacxx" ]]; then
-      CUDA_HOME="$cuda_home" CUDACXX="$cudacxx" "$UV_BIN" sync --project "$project_dir" --group cuda
+      CUDA_HOME="$cuda_home" CUDACXX="$cudacxx" CUTLASS_DIR="$cutlass_dir" "$UV_BIN" sync "${sync_args[@]}" --project "$project_dir" --group cuda
     else
-      "$UV_BIN" sync --project "$project_dir" --group cuda
+      CUTLASS_DIR="$cutlass_dir" "$UV_BIN" sync "${sync_args[@]}" --project "$project_dir" --group cuda
     fi
     return 0
   fi
@@ -304,12 +335,13 @@ resolve_gpu_mode() {
       echo "[GPU_MODE=fast] 模型常驻显存, 并发=${CELERY_CONCURRENCY}, 池=${CELERY_POOL}" >&2
       ;;
     balanced)
-      # ⚖️ 平衡模式: 模型常驻 + 单任务
-      export TD_RESIDENT_GPU="${TD_RESIDENT_GPU:-1}"
+      # ⚖️ 平衡模式: 显存更稳（等同 lowvram 默认策略）
+      # 说明：Wan2.2 I2V 在常驻模式下仍可能触发峰值显存过高；balanced 默认改为按需加载。
+      export TD_RESIDENT_GPU="${TD_RESIDENT_GPU:-0}"
       export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-1}"
-      export CELERY_POOL="${CELERY_POOL:-threads}"
-      export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-0}"
-      echo "[GPU_MODE=balanced] 模型常驻显存, 单任务处理" >&2
+      export CELERY_POOL="${CELERY_POOL:-}"
+      export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-1}"
+      echo "[GPU_MODE=balanced] 按需加载模型, 单任务处理" >&2
       ;;
     lowvram)
       # 💾 显存优先: 按需加载 + 单任务
@@ -372,6 +404,72 @@ maybe_pnpm_install() {
   (cd "$REPO_ROOT/$project_dir" && "$PNPM_BIN" install)
 }
 
+maybe_build_turbodiffusion_ops() {
+  if [[ "${TSN_BUILD_TD_OPS:-0}" != "1" ]]; then
+    return 0
+  fi
+  if [[ ! -x "$REPO_ROOT/scripts/build_turbodiffusion_ops.sh" ]]; then
+    echo "missing script: $REPO_ROOT/scripts/build_turbodiffusion_ops.sh" >&2
+    exit 1
+  fi
+  echo "[info] TSN_BUILD_TD_OPS=1: ensuring turbo_diffusion_ops is installed..." >&2
+  "$REPO_ROOT/scripts/build_turbodiffusion_ops.sh"
+}
+
+nvcc_release() {
+  # Prints "<major>.<minor>" (e.g. "12.8") or empty.
+  "$1" -V 2>/dev/null | awk '/release/ {for (i=1;i<=NF;i++) if ($i=="release") {print $(i+1) ; exit}}' | sed 's/,//g'
+}
+
+ensure_worker_cuda_toolkit_env() {
+  # Ensure the worker runtime can find libcudart.so.* and (optionally) a matching nvcc.
+  if [[ "${TSN_SET_CUDA_TOOLKIT_ENV:-1}" != "1" ]]; then
+    return 0
+  fi
+
+  local torch_cuda=""
+  torch_cuda="$("$UV_BIN" run --project apps/worker --directory apps/worker python -c "import torch; print(torch.version.cuda or '')" 2>/dev/null || true)"
+
+  local preferred_toolkit=""
+  if [[ -n "$torch_cuda" && -d "$HOME/.local/cuda-$torch_cuda" ]]; then
+    preferred_toolkit="$HOME/.local/cuda-$torch_cuda"
+  fi
+
+  if [[ "${TSN_KEEP_CUDA_HOME:-0}" != "1" && -n "$preferred_toolkit" ]]; then
+    if [[ -z "${CUDA_HOME:-}" ]]; then
+      export CUDA_HOME="$preferred_toolkit"
+    elif [[ -x "${CUDA_HOME}/bin/nvcc" ]]; then
+      local current_release=""
+      current_release="$(nvcc_release "${CUDA_HOME}/bin/nvcc" || true)"
+      if [[ -n "$current_release" && -n "$torch_cuda" && "$current_release" != "$torch_cuda" ]]; then
+        export CUDA_HOME="$preferred_toolkit"
+      fi
+    fi
+  fi
+
+  if [[ -n "${CUDA_HOME:-}" ]]; then
+    export CUDACXX="${CUDACXX:-$CUDA_HOME/bin/nvcc}"
+    export PATH="$CUDA_HOME/bin:$PATH"
+    export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
+  fi
+}
+
+ensure_worker_torch_ld_library_path() {
+  # TurboDiffusion ops is a native extension; importing it needs Torch's lib dir on LD_LIBRARY_PATH.
+  if [[ "${TSN_SET_TORCH_LD_LIBRARY_PATH:-1}" != "1" ]]; then
+    return 0
+  fi
+  local torch_lib
+  torch_lib="$("$UV_BIN" run --project apps/worker --directory apps/worker python -c "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))" 2>/dev/null || true)"
+  if [[ -z "$torch_lib" || ! -d "$torch_lib" ]]; then
+    return 0
+  fi
+  case ":${LD_LIBRARY_PATH:-}:" in
+    *":$torch_lib:"*) ;;
+    *) export LD_LIBRARY_PATH="$torch_lib:${LD_LIBRARY_PATH:-}" ;;
+  esac
+}
+
 usage() {
   cat <<'EOF'
 用法:
@@ -388,6 +486,10 @@ GPU 模式 (最重要的配置):
 环境变量:
   TSN_ENV_FILE=...    指定 env 文件 (默认: .env)
   TSN_SKIP_SYNC=1     跳过 uv sync 检查
+  TSN_BUILD_TD_OPS=1  启动 worker 前构建 turbo_diffusion_ops
+  TSN_SET_TORCH_LD_LIBRARY_PATH=0  禁用自动设置 torch lib 到 LD_LIBRARY_PATH
+  TSN_KEEP_CUDA_HOME=1  不自动覆盖 CUDA_HOME
+  TSN_SET_CUDA_TOOLKIT_ENV=0  禁用自动设置 CUDA toolkit 环境变量
 
 目录:
   MODELS_DIR=...      模型目录 (默认: ./models)
@@ -426,6 +528,9 @@ main() {
         worker)
           load_env worker
           maybe_uv_sync apps/worker
+          maybe_build_turbodiffusion_ops
+          ensure_worker_cuda_toolkit_env
+          ensure_worker_torch_ld_library_path
           start_service "worker" "$LOG_DIR/worker.log" "$(worker_cmd)"
           ;;
         all)
@@ -434,6 +539,9 @@ main() {
           start_service "api" "$LOG_DIR/api.log" "$(api_cmd)"
           load_env worker
           maybe_uv_sync apps/worker
+          maybe_build_turbodiffusion_ops
+          ensure_worker_cuda_toolkit_env
+          ensure_worker_torch_ld_library_path
           start_service "worker" "$LOG_DIR/worker.log" "$(worker_cmd)"
           maybe_pnpm_install apps/web
           start_service "web" "$LOG_DIR/web.log" "$(web_cmd)"

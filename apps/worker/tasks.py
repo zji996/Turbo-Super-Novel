@@ -47,8 +47,29 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _gpu_mode_defaults() -> tuple[bool, bool]:
+    """
+    Return (resident_gpu_default, cuda_cleanup_default) derived from GPU_MODE.
+
+    GPU_MODE is expanded to TD_* vars by `scripts/tsn_manage.sh`, but when the worker is started
+    directly (or via IDE envFile) only GPU_MODE may be present.
+    """
+    mode = str(os.getenv("GPU_MODE", "")).strip().lower()
+    if mode == "fast":
+        return True, False
+    if mode == "balanced":
+        return False, True
+    if mode == "lowvram":
+        return False, True
+    return False, True
+
+
 def _maybe_cuda_cleanup(*, job_id: str) -> None:
-    if not _env_bool("TD_CUDA_CLEANUP", True):
+    resident_default, cleanup_default = _gpu_mode_defaults()
+    resident_gpu = _env_bool("TD_RESIDENT_GPU", resident_default)
+    if not _env_bool("TD_CUDA_CLEANUP", cleanup_default):
+        return
+    if resident_gpu:
         return
     try:
         import gc
