@@ -45,4 +45,3 @@ def ensure_bucket_exists(bucket: str) -> None:
         client.create_bucket(Bucket=bucket)
     except Exception:
         client.head_bucket(Bucket=bucket)
-

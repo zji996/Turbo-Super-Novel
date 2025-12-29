@@ -92,8 +92,8 @@ if [[ ! -x "$CUDA_HOME/bin/nvcc" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$REPO_ROOT/libs/turbo_diffusion_ops/setup.py" ]]; then
-  echo "missing package: $REPO_ROOT/libs/turbo_diffusion_ops" >&2
+if [[ ! -f "$REPO_ROOT/libs/ai/ops/setup.py" ]]; then
+  echo "missing package: $REPO_ROOT/libs/ai/ops" >&2
   exit 1
 fi
 
@@ -131,7 +131,7 @@ fi
   python -m pip install -U pip setuptools wheel ninja
 
 "$UV" run --project "$REPO_ROOT/apps/worker" --directory "$REPO_ROOT/apps/worker" \
-  python -m pip install -e "$REPO_ROOT/libs/turbo_diffusion_ops" --no-build-isolation
+  python -m pip install -e "$REPO_ROOT/libs/ai/ops" --no-build-isolation
 
 "$UV" run --project "$REPO_ROOT/apps/worker" --directory "$REPO_ROOT/apps/worker" \
   python -c "import turbo_diffusion_ops; print('turbo_diffusion_ops import ok')"

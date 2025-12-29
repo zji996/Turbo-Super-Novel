@@ -1,0 +1,21 @@
+[project]
+name = "tsn-novel"
+version = "0.1.0"
+description = "Novel video project management and pipeline orchestration"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "tsn-core",
+  "tsn-db",
+]
+
+[tool.uv.sources]
+tsn-core = { path = "../../foundation/core", editable = true }
+tsn-db = { path = "../../foundation/db", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/novel"]

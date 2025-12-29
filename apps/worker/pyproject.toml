@@ -7,9 +7,10 @@ dependencies = [
   "celery>=5.4",
   "redis>=5.0",
   "boto3>=1.34",
-  "py_core",
-  "td_core",
-  "db_core",
+  "tsn-core",
+  "tsn-videogen",
+  "tsn-db",
+  "tsn-tts",
   "torch>=2.8",
   "torchvision>=0.23",
   "triton",
@@ -21,6 +22,25 @@ dependencies = [
   "imageio[ffmpeg]",
   "pandas",
   "transformers",
+  "torchaudio",
+  "onnxruntime-gpu>=1.19.0",
+  "hyperpyyaml>=1.2.2",
+  "sentencepiece>=0.1.99",
+  "soundfile>=0.12.1",
+  "scipy>=1.15.0",
+  "librosa>=0.10.0",
+  "tiktoken>=0.6.0",
+  "WeTextProcessing>=1.0.3",
+  "contractions>=0.1.73",
+  "inflect>=7.3.1",
+  "emoji>=2.14.1",
+  "pronouncing>=0.2.0",
+  "jieba>=0.42.1",
+  "pypinyin>=0.44.0",
+  "zhconv>=1.4.3",
+  "zhon>=2.1.1",
+  "peft>=0.7.0",
+  "x-transformers>=1.42.0",
   "ftfy",
   "regex",
   "PyYAML",
@@ -33,11 +53,12 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-py_core = { path = "../../libs/pycore", editable = true }
-td_core = { path = "../../libs/turbodiffusion_core", editable = true }
-db_core = { path = "../../libs/dbcore", editable = true }
-dfloat11 = { path = "../../libs/dfloat11", editable = true }
-turbo_diffusion_ops = { path = "../../libs/turbo_diffusion_ops", editable = true }
+tsn-core = { path = "../../libs/foundation/core", editable = true }
+tsn-videogen = { path = "../../libs/ai/videogen", editable = true }
+tsn-db = { path = "../../libs/foundation/db", editable = true }
+tsn-tts = { path = "../../libs/ai/tts", editable = true }
+dfloat11 = { path = "../../libs/ai/dfloat11", editable = true }
+tsn-ops = { path = "../../libs/ai/ops", editable = true }
 
 [dependency-groups]
 dev = [
@@ -48,7 +69,7 @@ cuda = [
   "torch<2.9",
   "torchvision<0.24",
   "flash-attn",
-  "turbo_diffusion_ops",
+  "tsn-ops",
 ]
 sagesla = [
   "spas-sage-attn @ git+https://github.com/thu-ml/SpargeAttn.git",

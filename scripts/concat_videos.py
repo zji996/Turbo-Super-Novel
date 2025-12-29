@@ -4,7 +4,7 @@ import argparse
 import subprocess
 from pathlib import Path
 
-from libs.pycore.paths import data_dir
+from core.paths import data_dir
 
 
 def _run(cmd: list[str]) -> None:
@@ -39,7 +39,9 @@ def _ffmpeg_exe() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Concatenate multiple MP4 clips into a single MP4 (ffmpeg concat).")
+    parser = argparse.ArgumentParser(
+        description="Concatenate multiple MP4 clips into a single MP4 (ffmpeg concat)."
+    )
     parser.add_argument("--output", required=True, help="Output .mp4 path")
     parser.add_argument("inputs", nargs="+", help="Input .mp4 clips, in order")
     args = parser.parse_args(argv)
@@ -52,7 +54,24 @@ def main(argv: list[str] | None = None) -> int:
 
     # Fast path: stream copy (requires same codec/params across inputs).
     try:
-        _run([ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(output_path)])
+        _run(
+            [
+                ffmpeg,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_path),
+                "-c",
+                "copy",
+                str(output_path),
+            ]
+        )
         return 0
     except subprocess.CalledProcessError:
         pass

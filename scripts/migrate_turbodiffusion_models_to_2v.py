@@ -4,8 +4,7 @@ import argparse
 import shutil
 from pathlib import Path
 
-from libs.pycore.paths import models_dir
-
+from core.paths import models_dir
 
 _DEFAULT_ITEMS = (
     "vae",
@@ -31,7 +30,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=",".join(_DEFAULT_ITEMS),
         help=f"Comma-separated folders to move (default: {','.join(_DEFAULT_ITEMS)})",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print planned moves without modifying files")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print planned moves without modifying files",
+    )
     return parser.parse_args(argv)
 
 
@@ -86,4 +89,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

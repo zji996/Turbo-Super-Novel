@@ -9,11 +9,16 @@ from uuid import uuid4
 from celery.result import AsyncResult
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
-from libs.pycore.paths import paths_summary
-from libs.dbcore import TurboDiffusionJob, ensure_schema, session_scope, try_insert_job, try_update_job
-from libs.turbodiffusion.registry import list_artifacts
-from libs.turbodiffusion.paths import turbodiffusion_models_root, wan22_i2v_model_paths
-
+from core.paths import paths_summary
+from db import (
+    TurboDiffusionJob,
+    ensure_schema,
+    session_scope,
+    try_insert_job,
+    try_update_job,
+)
+from videogen.paths import turbodiffusion_models_root, wan22_i2v_model_paths
+from videogen.registry import list_artifacts
 from celery_app import celery_app
 from s3 import ensure_bucket_exists, s3_bucket_name, s3_client
 
@@ -50,7 +55,12 @@ def turbodiffusion_models() -> dict:
                 "model": "TurboWan2.2-I2V-A14B-720P",
                 "quantized": True,
                 "files": [
-                    {"name": a.name, "group": a.group, "path": str(root / a.relative_path), "exists": (root / a.relative_path).is_file()}
+                    {
+                        "name": a.name,
+                        "group": a.group,
+                        "path": str(root / a.relative_path),
+                        "exists": (root / a.relative_path).is_file(),
+                    }
                     for a in artifacts
                 ],
                 "paths": {
@@ -150,19 +160,27 @@ async def create_wan22_i2v_job(
                 "seed": int(seed),
                 "num_steps": int(num_steps),
                 "quantized": bool(quantized),
-                "duration_seconds": float(duration_seconds) if duration_seconds is not None else None,
+                "duration_seconds": float(duration_seconds)
+                if duration_seconds is not None
+                else None,
             },
         )
     except Exception as exc:
         if db_persisted:
-            try_update_job(job_uuid, status="SUBMIT_FAILED", error=str(exc), result=None)
-        raise HTTPException(status_code=500, detail=f"Failed to submit Celery task: {exc}") from exc
+            try_update_job(
+                job_uuid, status="SUBMIT_FAILED", error=str(exc), result=None
+            )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to submit Celery task: {exc}"
+        ) from exc
 
     if db_persisted:
         ok, err = try_update_job(job_uuid, status="SUBMITTED", error=None, result=None)
         if not ok:
             db_error = err
-            logger.error("Failed to update job status to SUBMITTED: %s (%s)", job_id, db_error)
+            logger.error(
+                "Failed to update job status to SUBMITTED: %s (%s)", job_id, db_error
+            )
 
     return {
         "job_id": job_id,
@@ -187,8 +205,12 @@ def get_job(job_id: str) -> dict:
                     "status": row.status,
                     "input": {"bucket": row.input_bucket, "key": row.input_key},
                     "output": {"bucket": row.output_bucket, "key": row.output_key},
-                    "created_at": row.created_at.isoformat() if row.created_at else None,
-                    "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                    "created_at": row.created_at.isoformat()
+                    if row.created_at
+                    else None,
+                    "updated_at": row.updated_at.isoformat()
+                    if row.updated_at
+                    else None,
                     "error": row.error,
                 }
     except Exception as exc:
@@ -200,7 +222,11 @@ def get_job(job_id: str) -> dict:
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         payload["result"] = value
-        if isinstance(value, dict) and "output_bucket" in value and "output_key" in value:
+        if (
+            isinstance(value, dict)
+            and "output_bucket" in value
+            and "output_key" in value
+        ):
             client = s3_client()
             url = client.generate_presigned_url(
                 "get_object",

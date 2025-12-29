@@ -27,7 +27,7 @@ uv run --project apps/worker --directory apps/worker python -c "import torch; pr
 
 说明：
 
-- 推理运行时不依赖 `third_party/`：上游 Python 代码已 vendoring 到 `libs/turbodiffusion_core`。
+- 推理运行时不依赖 `third_party/`：上游 Python 代码已 vendoring 到 `libs/ai/videogen`。
 - 量化权重需要 `turbo_diffusion_ops`（CUDA 扩展），其构建依赖 CUTLASS。
 - 本仓库默认会把 CUTLASS 下载/解压到 `data/cutlass-v4.3.0`（或你也可手动设置 `CUTLASS_DIR` 指向任意 CUTLASS v4.3.0 checkout）。
 
@@ -54,7 +54,7 @@ data/cuda_installers/cuda_12.8.1_570.124.06_linux.run \
 
 ## 3. 编译并安装 `turbo_diffusion_ops`（限制编译并行度）
 
-`turbo_diffusion_ops` 的源码已 vendoring 到 `libs/turbo_diffusion_ops`，推理运行时不依赖子模块源码。
+`turbo_diffusion_ops` 的源码已 vendoring 到 `libs/ai/ops`，推理运行时不依赖子模块源码。
 
 仓库已提供一个一键脚本（会自动选择匹配 `torch.version.cuda` 的 `~/.local/cuda-<version>`）：
 
@@ -85,7 +85,7 @@ export LD_LIBRARY_PATH="$(uv run --project apps/worker --directory apps/worker p
 
 # 编译并安装 turbo_diffusion_ops
 uv run --project apps/worker --directory apps/worker \
-  python -m pip install -e ../../libs/turbo_diffusion_ops --no-build-isolation
+  python -m pip install -e ../../libs/ai/ops --no-build-isolation
 ```
 
 ## 3.1 启用 SageSLA（可选，但强烈推荐）
@@ -134,7 +134,7 @@ TurboDiffusion 上游的 UMT5 tokenizer 默认通过 `transformers.AutoTokenizer
 1) 下载 tokenizer 文件到 `models/2v/`（只拉 tokenizer，不拉模型权重）：
 
 ```bash
-uv run --project apps/worker scripts/cache_umt5_tokenizer.py
+uv run --project apps/api --group tools scripts/cache_umt5_tokenizer.py
 ```
 
 2) 在 `.env` 中开启离线并指向本地 tokenizer 目录：

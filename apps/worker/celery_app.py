@@ -26,4 +26,3 @@ def make_celery() -> Celery:
 
 
 celery_app = make_celery()
-

@@ -3,18 +3,30 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from libs.turbodiffusion.paths import turbodiffusion_models_root
+from videogen.paths import turbodiffusion_models_root
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Cache UMT5 tokenizer files locally for offline inference")
-    parser.add_argument("--repo-id", default="google/umt5-xxl", help="HuggingFace repo id (default: google/umt5-xxl)")
+    parser = argparse.ArgumentParser(
+        description="Cache UMT5 tokenizer files locally for offline inference"
+    )
+    parser.add_argument(
+        "--repo-id",
+        default="google/umt5-xxl",
+        help="HuggingFace repo id (default: google/umt5-xxl)",
+    )
     parser.add_argument(
         "--out-dir",
-        default=str((turbodiffusion_models_root() / "text-encoder" / "umt5-xxl-tokenizer").resolve()),
+        default=str(
+            (
+                turbodiffusion_models_root() / "text-encoder" / "umt5-xxl-tokenizer"
+            ).resolve()
+        ),
         help="Output directory for tokenizer files (default: <MODELS_DIR>/2v/text-encoder/umt5-xxl-tokenizer)",
     )
-    parser.add_argument("--revision", default=None, help="Optional HF revision (tag/commit)")
+    parser.add_argument(
+        "--revision", default=None, help="Optional HF revision (tag/commit)"
+    )
     return parser.parse_args()
 
 
@@ -25,7 +37,7 @@ def main() -> int:
         from huggingface_hub import snapshot_download
     except Exception as exc:  # pragma: no cover
         raise RuntimeError(
-            "Missing dependency `huggingface_hub`. Install via worker env: `uv sync --project apps/worker`."
+            "Missing dependency `huggingface_hub`. Install via API tools group: `uv sync --project apps/api --group tools`."
         ) from exc
 
     out_dir = Path(args.out_dir).expanduser().resolve()
@@ -49,7 +61,9 @@ def main() -> int:
     )
 
     print(f"Cached tokenizer to: {out_dir}")
-    print("Next: set `TD_UMT5_TOKENIZER_DIR` to this directory and optionally `TD_HF_OFFLINE=1`.")
+    print(
+        "Next: set `TD_UMT5_TOKENIZER_DIR` to this directory and optionally `TD_HF_OFFLINE=1`."
+    )
     return 0
 
 

@@ -7,8 +7,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from libs.turbodiffusion.registry import iter_artifacts
-from libs.turbodiffusion.paths import turbodiffusion_models_root
+from videogen.registry import iter_artifacts
+from videogen.paths import turbodiffusion_models_root
 
 
 def _format_bytes(value: int) -> str:
@@ -29,7 +29,9 @@ def _download(url: str, dst: Path, *, force: bool) -> None:
     if tmp.exists():
         tmp.unlink()
 
-    req = urllib.request.Request(url, headers={"User-Agent": "Turbo-Super-Novel/td-downloader"})
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "Turbo-Super-Novel/td-downloader"}
+    )
     with urllib.request.urlopen(req) as resp:  # noqa: S310
         total = int(resp.headers.get("Content-Length") or 0)
         downloaded = 0
@@ -42,9 +44,15 @@ def _download(url: str, dst: Path, *, force: bool) -> None:
                 downloaded += len(chunk)
                 if total:
                     pct = downloaded / total * 100
-                    print(f"\rdownloading: {dst.name} {pct:6.2f}% ({_format_bytes(downloaded)}/{_format_bytes(total)})", end="")
+                    print(
+                        f"\rdownloading: {dst.name} {pct:6.2f}% ({_format_bytes(downloaded)}/{_format_bytes(total)})",
+                        end="",
+                    )
                 else:
-                    print(f"\rdownloading: {dst.name} ({_format_bytes(downloaded)})", end="")
+                    print(
+                        f"\rdownloading: {dst.name} ({_format_bytes(downloaded)})",
+                        end="",
+                    )
     print()
 
     tmp.replace(dst)
@@ -52,25 +60,46 @@ def _download(url: str, dst: Path, *, force: bool) -> None:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Download TurboDiffusion model artifacts into MODELS_DIR.")
-    parser.add_argument("--model", default="TurboWan2.2-I2V-A14B-720P", help="Model name (default: TurboWan2.2-I2V-A14B-720P)")
-    parser.add_argument("--quantized", action=argparse.BooleanOptionalAction, default=True, help="Use quantized checkpoints (default: true)")
+    parser = argparse.ArgumentParser(
+        description="Download TurboDiffusion model artifacts into MODELS_DIR."
+    )
+    parser.add_argument(
+        "--model",
+        default="TurboWan2.2-I2V-A14B-720P",
+        help="Model name (default: TurboWan2.2-I2V-A14B-720P)",
+    )
+    parser.add_argument(
+        "--quantized",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use quantized checkpoints (default: true)",
+    )
     parser.add_argument(
         "--groups",
         default="base,dit",
         help="Comma-separated groups to download: base,dit (default: base,dit)",
     )
-    parser.add_argument("--force", action="store_true", help="Re-download even if file exists")
-    parser.add_argument("--dry-run", action="store_true", help="Print planned downloads without downloading")
+    parser.add_argument(
+        "--force", action="store_true", help="Re-download even if file exists"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print planned downloads without downloading",
+    )
     args = parser.parse_args(argv)
 
     root = turbodiffusion_models_root().resolve()
     groups = tuple(part.strip() for part in str(args.groups).split(",") if part.strip())
-    planned = list(iter_artifacts(args.model, quantized=bool(args.quantized), groups=groups))  # type: ignore[arg-type]
+    planned = list(
+        iter_artifacts(args.model, quantized=bool(args.quantized), groups=groups)
+    )  # type: ignore[arg-type]
 
     print(f"TurboDiffusion models root={root}")
     if os.getenv("MODELS_DIR"):
-        print("MODELS_DIR is set via env var (TurboDiffusion uses MODELS_DIR/2v by default).")
+        print(
+            "MODELS_DIR is set via env var (TurboDiffusion uses MODELS_DIR/2v by default)."
+        )
     print(f"planned={len(planned)} files")
 
     for artifact in planned:
@@ -81,7 +110,9 @@ def main(argv: list[str]) -> int:
         try:
             _download(artifact.url, dst, force=args.force)
         except urllib.error.HTTPError as exc:
-            raise SystemExit(f"download failed ({exc.code}) for {artifact.url}") from exc
+            raise SystemExit(
+                f"download failed ({exc.code}) for {artifact.url}"
+            ) from exc
 
     return 0
 

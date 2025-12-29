@@ -10,10 +10,9 @@ import uuid
 import boto3
 from botocore.config import Config
 
-from libs.pycore.paths import data_dir
-from libs.turbodiffusion.inference import run_wan22_i2v
-from libs.turbodiffusion.paths import wan22_i2v_model_paths
-
+from core.paths import data_dir
+from videogen.inference import run_wan22_i2v
+from videogen.paths import wan22_i2v_model_paths
 from celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -89,14 +88,18 @@ def _maybe_cuda_cleanup(*, job_id: str) -> None:
         logger.exception("CUDA cleanup failed (job_id=%s)", job_id)
 
 
-def _db_update(*, job_id: str, status: str, error: str | None = None, result: dict | None = None) -> None:
+def _db_update(
+    *, job_id: str, status: str, error: str | None = None, result: dict | None = None
+) -> None:
     try:
-        from libs.dbcore import ensure_schema, try_update_job
+        from db import ensure_schema, try_update_job
 
         ensure_schema()
         ok, err = try_update_job(job_id, status=status, error=error, result=result)
         if not ok:
-            logger.warning("DB update failed for job_id=%s status=%s: %s", job_id, status, err)
+            logger.warning(
+                "DB update failed for job_id=%s status=%s: %s", job_id, status, err
+            )
     except Exception:
         logger.exception("DB update crashed for job_id=%s status=%s", job_id, status)
 
@@ -116,7 +119,7 @@ def _db_ensure_job_row(
 ) -> None:
     try:
         job_uuid = uuid.UUID(job_id)
-        from libs.dbcore import TurboDiffusionJob, ensure_schema, session_scope
+        from db import TurboDiffusionJob, ensure_schema, session_scope
 
         ensure_schema()
         with session_scope() as session:
@@ -177,7 +180,9 @@ def generate_wan22_i2v(  # type: ignore[misc]
             raise ValueError(f"duration_seconds must be > 0, got {duration_seconds}")
         max_duration = float(os.getenv("TD_MAX_VIDEO_SECONDS", "10") or "10")
         if float(duration_seconds) > max_duration:
-            raise ValueError(f"duration_seconds too large (max={max_duration}s), got {duration_seconds}")
+            raise ValueError(
+                f"duration_seconds too large (max={max_duration}s), got {duration_seconds}"
+            )
 
         num_frames = int(round(float(duration_seconds) * fps))
         if num_frames <= 0:
@@ -258,7 +263,9 @@ def generate_wan22_i2v(  # type: ignore[misc]
         result={
             "output_bucket": output_bucket,
             "output_key": output_key,
-            "duration_seconds": float(duration_seconds) if duration_seconds is not None else None,
+            "duration_seconds": float(duration_seconds)
+            if duration_seconds is not None
+            else None,
         },
     )
 
@@ -268,5 +275,7 @@ def generate_wan22_i2v(  # type: ignore[misc]
         "input_key": input_key,
         "output_bucket": output_bucket,
         "output_key": output_key,
-        "duration_seconds": float(duration_seconds) if duration_seconds is not None else None,
+        "duration_seconds": float(duration_seconds)
+        if duration_seconds is not None
+        else None,
     }

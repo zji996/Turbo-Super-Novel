@@ -30,6 +30,7 @@ repo_root/
 **脚本运行（借用环境）：**
 - 重型任务 (CUDA/PyTorch)：`uv run --project apps/worker scripts/xxx.py`
 - S3 任务 (boto3)：`uv run --project apps/api scripts/xxx.py`
+- 模型/Tokenizer 下载：`uv run --project apps/api --group tools scripts/xxx.py`
 
 ## 依赖规则
 
@@ -37,13 +38,13 @@ repo_root/
 
 ```toml
 [project]
-dependencies = ["fastapi", "py_core"]
+dependencies = ["fastapi", "tsn-core"]
 
 [tool.uv.sources]
-py_core = { path = "../../libs/pycore", editable = true }
+tsn-core = { path = "../../libs/foundation/core", editable = true }
 ```
 
-**导入路径：** `from libs.pycore import xxx`（绝对路径）
+**导入路径：** `from core import xxx`（绝对路径；不再使用 `libs.*` 命名空间）
 
 ## 环境变量
 

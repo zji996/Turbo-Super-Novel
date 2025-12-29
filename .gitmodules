@@ -4,3 +4,6 @@
 [submodule "third_party/DFloat11"]
 	path = third_party/DFloat11
 	url = https://github.com/LeanModels/DFloat11
+[submodule "third_party/GLM-TTS"]
+	path = third_party/GLM-TTS
+	url = https://github.com/zai-org/GLM-TTS

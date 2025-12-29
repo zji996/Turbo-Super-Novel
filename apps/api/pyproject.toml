@@ -11,27 +11,31 @@ dependencies = [
   "redis>=5.0",
   "python-multipart>=0.0.9",
   "pydantic>=2.0",
-  "py_core",
-  "td_core",
-  "db_core",
-  "novel_core",
-  "tts_core",
-  "imagegen_core",
+  "tsn-core",
+  "tsn-videogen",
+  "tsn-db",
+  "tsn-novel",
+  "tsn-tts",
+  "tsn-imagegen",
 ]
 
 [tool.uv.sources]
-py_core = { path = "../../libs/pycore", editable = true }
-td_core = { path = "../../libs/turbodiffusion_core", editable = true }
-db_core = { path = "../../libs/dbcore", editable = true }
-novel_core = { path = "../../libs/novelcore", editable = true }
-tts_core = { path = "../../libs/ttscore", editable = true }
-imagegen_core = { path = "../../libs/imagegencore", editable = true }
+tsn-core = { path = "../../libs/foundation/core", editable = true }
+tsn-db = { path = "../../libs/foundation/db", editable = true }
+tsn-tts = { path = "../../libs/ai/tts", editable = true }
+tsn-imagegen = { path = "../../libs/ai/imagegen", editable = true }
+tsn-videogen = { path = "../../libs/ai/videogen", editable = true }
+tsn-novel = { path = "../../libs/business/novel", editable = true }
 
 [dependency-groups]
 dev = [
   "pytest>=8",
   "httpx>=0.27",
   "ruff>=0.6",
+]
+tools = [
+  "modelscope>=1.16.0",
+  "huggingface_hub>=0.24.0",
 ]
 
 [build-system]

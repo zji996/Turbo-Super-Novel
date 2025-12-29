@@ -1,5 +1,4 @@
 exclude = [
-  "libs/turbodiffusion_core/src/rcm",
-  "libs/turbodiffusion_core/src/imaginaire",
-  "libs/turbodiffusion_core/src/SLA",
+  "libs/ai/tts/src/tts/vendors",
+  "libs/ai/videogen/src/videogen/_vendor",
 ]

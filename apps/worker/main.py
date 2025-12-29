@@ -1,4 +1,4 @@
-from libs.pycore.paths import paths_summary
+from core.paths import paths_summary
 
 
 def main() -> None:

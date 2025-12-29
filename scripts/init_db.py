@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from libs.dbcore import create_all
+from db import create_all
 
 
 def main() -> None:
@@ -10,4 +10,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

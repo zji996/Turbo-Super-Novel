@@ -50,7 +50,7 @@ uv sync --project apps/worker --group sagesla
 
 - Redis：作为 Celery broker/result backend
 - MinIO/S3：输入图片与输出视频存储
-- TurboDiffusion 推理代码：已 vendoring 到 `libs/turbodiffusion_core`
+- TurboDiffusion 推理代码：已 vendoring 到 `libs/ai/videogen`
 - `turbo_diffusion_ops`：量化 Wan2.2 权重需要（CUDA 扩展，构建说明见 `docs/turbodiffusion_i2v_runbook.md`）
 
 ## Test

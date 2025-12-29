@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 
-from libs.turbodiffusion.paths import wan22_i2v_model_paths
+from videogen.paths import wan22_i2v_model_paths
 
 
 def _load_state_dict(path: Path) -> dict:
@@ -57,7 +57,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     default_save_dir = (default_ckpt.parent.parent / "text-encoder-df11").resolve()
     default_output_name = "models_t5_umt5-xxl-enc-df11.safetensors"
 
-    parser = argparse.ArgumentParser(description="Compress TurboDiffusion UMT5-XXL encoder (BF16 .pth) into DF11.")
+    parser = argparse.ArgumentParser(
+        description="Compress TurboDiffusion UMT5-XXL encoder (BF16 .pth) into DF11."
+    )
     parser.add_argument(
         "--ckpt-path",
         type=Path,

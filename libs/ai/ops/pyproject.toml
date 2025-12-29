@@ -1,0 +1,18 @@
+[project]
+name = "tsn-ops"
+version = "0.1.0"
+description = "TurboDiffusion CUDA extension ops (int8 quant/gemm + norm kernels)"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "torch>=2.7.0",
+]
+
+[build-system]
+requires = [
+  "setuptools>=62",
+  "wheel>=0.38",
+  "packaging>=21",
+  "torch>=2.7.0",
+  "ninja",
+]
+build-backend = "setuptools.build_meta"
