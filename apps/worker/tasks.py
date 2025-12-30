@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import traceback
 from typing import Any
@@ -143,6 +145,20 @@ def _db_ensure_job_row(
         logger.exception("DB ensure job row failed for job_id=%s", job_id)
 
 
+def _audio_duration_seconds_wav(path: Path) -> float | None:
+    try:
+        import wave
+
+        with wave.open(str(path), "rb") as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+        if rate <= 0:
+            return None
+        return float(frames) / float(rate)
+    except Exception:
+        return None
+
+
 @celery_app.task(name="turbodiffusion.wan22_i2v.generate", bind=True)
 def generate_wan22_i2v(  # type: ignore[misc]
     self,
@@ -279,3 +295,185 @@ def generate_wan22_i2v(  # type: ignore[misc]
         if duration_seconds is not None
         else None,
     }
+
+
+@celery_app.task(name="novel.scene.tts", bind=True)
+def process_scene_tts(  # type: ignore[misc]
+    self,
+    *,
+    scene_id: str,
+    project_id: str,
+    pipeline_id: str,
+    provider: str = "glm_tts",
+    sample_rate: int = 24000,
+    prompt_audio_bucket: str | None = None,
+    prompt_audio_key: str | None = None,
+    prompt_text: str | None = None,
+    **config: Any,
+) -> dict[str, Any]:
+    """Generate TTS for a single scene and update NovelScene row."""
+    try:
+        scene_uuid = uuid.UUID(scene_id)
+        project_uuid = uuid.UUID(project_id)
+        pipeline_uuid = uuid.UUID(pipeline_id)
+    except Exception as exc:
+        raise ValueError(f"invalid ids: {exc}") from exc
+
+    provider_norm = str(provider or "").strip().lower()
+    if provider_norm in {"glm_tts", "glm-tts", "glmtts"}:
+        provider_norm = "glm_tts"
+    if provider_norm not in {"glm_tts", "edge"}:
+        raise ValueError(f"unsupported provider: {provider}")
+
+    s3 = _s3_client()
+    bucket = os.getenv("S3_BUCKET_NAME") or ""
+    if not bucket:
+        raise RuntimeError("Missing required env var: S3_BUCKET_NAME")
+
+    output_key = f"novel/{project_id}/scenes/{scene_id}/audio.wav"
+    scene_dir = (data_dir() / "novel" / "scenes" / scene_id).resolve()
+    scene_dir.mkdir(parents=True, exist_ok=True)
+    output_path = (scene_dir / "audio.wav").resolve()
+    provider_output_path = output_path
+    if provider_norm == "edge":
+        provider_output_path = (scene_dir / "audio.mp3").resolve()
+
+    prompt_wav_path: Path | None = None
+    if provider_norm == "glm_tts":
+        if not prompt_text or not prompt_text.strip():
+            raise ValueError("glm_tts requires prompt_text")
+        if not prompt_audio_bucket or not prompt_audio_key:
+            raise ValueError("glm_tts requires prompt_audio_bucket/prompt_audio_key")
+        prompt_wav_path = (scene_dir / "prompt").with_suffix(
+            Path(prompt_audio_key).suffix or ".wav"
+        )
+        s3.download_file(prompt_audio_bucket, prompt_audio_key, str(prompt_wav_path))
+
+    from db import NovelPipeline, NovelProject, NovelScene, ensure_schema, session_scope
+
+    scene_text: str
+
+    ensure_schema()
+    with session_scope() as session:
+        scene = session.get(NovelScene, scene_uuid)
+        pipeline = session.get(NovelPipeline, pipeline_uuid)
+        project = session.get(NovelProject, project_uuid)
+        if scene is None:
+            raise ValueError("scene not found")
+        if project is None:
+            raise ValueError("project not found")
+        if pipeline is None:
+            raise ValueError("pipeline not found")
+        if scene.project_id != project_uuid:
+            raise ValueError("scene.project_id mismatch")
+        if pipeline.project_id != project_uuid:
+            raise ValueError("pipeline.project_id mismatch")
+
+        scene_text = scene.text
+        scene.status = "TTS_RUNNING"
+        scene.error = None
+        scene.audio_bucket = bucket
+        scene.audio_key = output_key
+        if pipeline.status in {"PENDING"}:
+            pipeline.status = "RUNNING"
+
+    try:
+        from tts import TTSError, get_tts_provider
+
+        tts_provider = get_tts_provider(
+            provider_norm, sample_rate=int(sample_rate), **config
+        )
+        synth_kwargs: dict[str, Any] = {}
+        if prompt_wav_path is not None:
+            synth_kwargs["prompt_wav"] = str(prompt_wav_path)
+            synth_kwargs["prompt_text"] = prompt_text
+
+        try:
+            asyncio.run(
+                tts_provider.synthesize(
+                    text=scene_text,
+                    output_path=provider_output_path,
+                    **synth_kwargs,
+                )
+            )
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(
+                    tts_provider.synthesize(
+                        text=scene_text,
+                        output_path=provider_output_path,
+                        **synth_kwargs,
+                    )
+                )
+            finally:
+                loop.close()
+
+        if not provider_output_path.is_file():
+            raise TTSError(f"Output file not created: {provider_output_path}")
+
+        if provider_norm == "edge":
+            try:
+                import librosa
+                import soundfile as sf
+
+                audio, _sr = librosa.load(
+                    str(provider_output_path), sr=int(sample_rate), mono=True
+                )
+                sf.write(str(output_path), audio, int(sample_rate), subtype="PCM_16")
+            except Exception as exc:
+                raise TTSError(f"Failed to convert Edge output to wav: {exc}") from exc
+
+        if not output_path.is_file():
+            raise TTSError(f"Output wav not created: {output_path}")
+
+        s3.upload_file(
+            str(output_path),
+            bucket,
+            output_key,
+            ExtraArgs={"ContentType": "audio/wav"},
+        )
+        duration = _audio_duration_seconds_wav(output_path)
+
+        ensure_schema()
+        with session_scope() as session:
+            scene = session.get(NovelScene, scene_uuid)
+            pipeline = session.get(NovelPipeline, pipeline_uuid)
+            if scene is not None:
+                scene.status = "TTS_SUCCEEDED"
+                scene.audio_bucket = bucket
+                scene.audio_key = output_key
+                scene.audio_duration_seconds = duration
+                scene.error = None
+            if pipeline is not None:
+                pipeline.completed_tasks = int(pipeline.completed_tasks or 0) + 1
+                if int(pipeline.completed_tasks or 0) >= int(pipeline.total_tasks or 0):
+                    pipeline.status = "COMPLETED"
+                    pipeline.completed_at = datetime.now(timezone.utc)
+
+        return {
+            "scene_id": scene_id,
+            "project_id": project_id,
+            "pipeline_id": pipeline_id,
+            "output_bucket": bucket,
+            "output_key": output_key,
+            "audio_duration_seconds": duration,
+        }
+
+    except Exception as exc:
+        tb = traceback.format_exc()
+        (scene_dir / "tts_error.txt").write_text(tb, encoding="utf-8", errors="replace")
+
+        ensure_schema()
+        with session_scope() as session:
+            scene = session.get(NovelScene, scene_uuid)
+            pipeline = session.get(NovelPipeline, pipeline_uuid)
+            if scene is not None:
+                scene.status = "TTS_FAILED"
+                scene.error = str(exc)
+            if pipeline is not None:
+                pipeline.status = "FAILED"
+                pipeline.error = str(exc)
+                pipeline.completed_at = datetime.now(timezone.utc)
+
+        raise

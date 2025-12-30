@@ -9,6 +9,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from celery_app import celery_app
 from db import (
     NovelProject,
     NovelScene,
@@ -17,6 +18,7 @@ from db import (
     session_scope,
 )
 from novel import parse_text_to_scenes
+from s3 import s3_bucket_name, s3_client
 
 router = APIRouter(prefix="/v1/novel", tags=["novel"])
 
@@ -298,6 +300,19 @@ async def get_project_scenes(project_id: str) -> list[dict]:
         )
         scenes = session.scalars(stmt).all()
 
+        def _maybe_presign(bucket: str | None, key: str | None) -> str | None:
+            if not bucket or not key:
+                return None
+            try:
+                client = s3_client()
+                return client.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": bucket, "Key": key},
+                    ExpiresIn=3600,
+                )
+            except Exception:
+                return None
+
         return [
             {
                 "id": str(s.id),
@@ -305,9 +320,9 @@ async def get_project_scenes(project_id: str) -> list[dict]:
                 "text": s.text,
                 "image_prompt": s.image_prompt,
                 "status": s.status,
-                "audio_url": None,  # TODO: Generate presigned URLs
-                "image_url": None,
-                "video_url": None,
+                "audio_url": _maybe_presign(s.audio_bucket, s.audio_key),
+                "image_url": _maybe_presign(s.image_bucket, s.image_key),
+                "video_url": _maybe_presign(s.video_bucket, s.video_key),
             }
             for s in scenes
         ]
@@ -330,6 +345,14 @@ async def start_pipeline(project_id: str, request: StartPipelineRequest) -> dict
         pid = uuid.UUID(project_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid project ID")
+
+    scene_ids: list[str] = []
+    provider: str | None = None
+    sample_rate: int | None = None
+    prompt_text: str | None = None
+    prompt_audio_bucket: str | None = None
+    prompt_audio_key: str | None = None
+    extra_config: dict[str, Any] = {}
 
     with session_scope() as session:
         from sqlalchemy import select, func
@@ -378,17 +401,41 @@ async def start_pipeline(project_id: str, request: StartPipelineRequest) -> dict
 
         session.flush()
 
-        # TODO: Submit to Celery
-        # celery_app.send_task(
-        #     "novel.pipeline.run",
-        #     kwargs={
-        #         "pipeline_id": str(pipeline_id),
-        #         "project_id": project_id,
-        #         "pipeline_type": request.pipeline_type,
-        #     }
-        # )
+        if request.pipeline_type == "TTS_ONLY":
+            tts_cfg = (project.config or {}).get("tts") or {}
+            provider = str(tts_cfg.get("provider") or "glm_tts")
+            sample_rate = int(tts_cfg.get("sample_rate") or 24000)
+            prompt_text = tts_cfg.get("prompt_text")
+            prompt_audio_id = tts_cfg.get("prompt_audio_id")
+            extra_config = dict(tts_cfg.get("config") or {})
 
-        return {
+            if provider in {"glm_tts", "glm-tts", "glmtts"}:
+                if not prompt_text or not str(prompt_text).strip():
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Project config missing tts.prompt_text (required for glm_tts)",
+                    )
+                if not prompt_audio_id or not str(prompt_audio_id).strip():
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Project config missing tts.prompt_audio_id (required for glm_tts)",
+                    )
+                prompt_audio_bucket = s3_bucket_name()
+                if "/" in str(prompt_audio_id):
+                    prompt_audio_key = str(prompt_audio_id)
+                else:
+                    prompt_audio_key = f"tts/prompt-audios/{prompt_audio_id}.wav"
+
+            stmt = (
+                select(NovelScene)
+                .where(NovelScene.project_id == pid)
+                .order_by(NovelScene.sequence)
+            )
+            scenes = session.scalars(stmt).all()
+            scene_ids = [str(s.id) for s in scenes]
+            pipeline.status = "RUNNING"
+
+        response = {
             "id": str(pipeline.id),
             "project_id": str(pipeline.project_id),
             "pipeline_type": pipeline.pipeline_type,
@@ -401,6 +448,38 @@ async def start_pipeline(project_id: str, request: StartPipelineRequest) -> dict
             "completed_at": None,
             "error": None,
         }
+
+    if request.pipeline_type == "TTS_ONLY":
+        assert provider is not None and sample_rate is not None
+        try:
+            for scene_id in scene_ids:
+                celery_app.send_task(
+                    "novel.scene.tts",
+                    kwargs={
+                        "scene_id": scene_id,
+                        "project_id": project_id,
+                        "pipeline_id": response["id"],
+                        "provider": provider,
+                        "sample_rate": sample_rate,
+                        "prompt_audio_bucket": prompt_audio_bucket,
+                        "prompt_audio_key": prompt_audio_key,
+                        "prompt_text": prompt_text,
+                        **extra_config,
+                    },
+                )
+        except Exception as exc:
+            ensure_schema()
+            with session_scope() as session:
+                pipeline = session.get(NovelPipeline, uuid.UUID(response["id"]))
+                project = session.get(NovelProject, pid)
+                if pipeline is not None:
+                    pipeline.status = "FAILED"
+                    pipeline.error = str(exc)
+                if project is not None:
+                    project.status = "FAILED"
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return response
 
 
 @router.get("/projects/{project_id}/pipelines", response_model=list[PipelineResponse])

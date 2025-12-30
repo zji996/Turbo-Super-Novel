@@ -8,11 +8,12 @@ from .db import (
     try_insert_job,
     try_update_job,
 )
-from .models import Base, TurboDiffusionJob, NovelProject, NovelScene, NovelPipeline
+from .models import Base, TurboDiffusionJob, TTSJob, NovelProject, NovelScene, NovelPipeline
 
 __all__ = [
     "Base",
     "TurboDiffusionJob",
+    "TTSJob",
     "NovelProject",
     "NovelScene",
     "NovelPipeline",

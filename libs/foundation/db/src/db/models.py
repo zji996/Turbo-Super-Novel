@@ -41,6 +41,42 @@ class TurboDiffusionJob(Base):
     )
 
 
+class TTSJob(Base):
+    """TTS synthesis job - tracks a single TTS generation request."""
+
+    __tablename__ = "tts_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    # CREATED, SUBMITTED, STARTED, RUNNING, SUCCEEDED, FAILED
+
+    text: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(String(32))
+
+    prompt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_audio_bucket: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    prompt_audio_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    output_bucket: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    output_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_duration_seconds: Mapped[float | None] = mapped_column(nullable=True)
+
+    sample_rate: Mapped[int] = mapped_column(default=24000)
+    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class NovelProject(Base):
     """Novel video project - the top-level entity for a novel-to-video conversion."""
 

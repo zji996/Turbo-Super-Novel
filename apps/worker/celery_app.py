@@ -13,7 +13,7 @@ def make_celery() -> Celery:
         "tsn-worker",
         broker=broker_url,
         backend=result_backend,
-        include=["tasks"],
+        include=["tasks", "tts_tasks"],
     )
     app.conf.update(
         task_serializer="json",

@@ -23,7 +23,7 @@ from celery_app import celery_app
 from s3 import ensure_bucket_exists, s3_bucket_name, s3_client
 
 # Import new routers
-from routes import novel_router, capabilities_router
+from routes import novel_router, capabilities_router, tts_router
 
 app = FastAPI(title="Turbo-Super-Novel API", version="0.2.0")
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # Include new routers
 app.include_router(novel_router)
 app.include_router(capabilities_router)
+app.include_router(tts_router)
 
 
 @app.get("/health")
