@@ -810,12 +810,10 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-multipart" },
     { name = "redis" },
+    { name = "tsn-capabilities" },
     { name = "tsn-core" },
     { name = "tsn-db" },
-    { name = "tsn-imagegen" },
     { name = "tsn-novel" },
-    { name = "tsn-tts" },
-    { name = "tsn-videogen" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -838,12 +836,10 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "redis", specifier = ">=5.0" },
+    { name = "tsn-capabilities", editable = "../../libs/foundation/capabilities" },
     { name = "tsn-core", editable = "../../libs/foundation/core" },
     { name = "tsn-db", editable = "../../libs/foundation/db" },
-    { name = "tsn-imagegen", editable = "../../libs/ai/imagegen" },
     { name = "tsn-novel", editable = "../../libs/business/novel" },
-    { name = "tsn-tts", editable = "../../libs/ai/tts" },
-    { name = "tsn-videogen", editable = "../../libs/ai/videogen" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27" },
 ]
 
@@ -856,6 +852,23 @@ dev = [
 tools = [
     { name = "huggingface-hub", specifier = ">=0.24.0" },
     { name = "modelscope", specifier = ">=1.16.0" },
+]
+
+[[package]]
+name = "tsn-capabilities"
+version = "0.1.0"
+source = { editable = "../../libs/foundation/capabilities" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "httpx", specifier = ">=0.25" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.6" },
 ]
 
 [[package]]
@@ -895,17 +908,6 @@ dev = [
 ]
 
 [[package]]
-name = "tsn-imagegen"
-version = "0.1.0"
-source = { editable = "../../libs/ai/imagegen" }
-dependencies = [
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "httpx", specifier = ">=0.25.0" }]
-
-[[package]]
 name = "tsn-novel"
 version = "0.1.0"
 source = { editable = "../../libs/business/novel" }
@@ -918,39 +920,6 @@ dependencies = [
 requires-dist = [
     { name = "tsn-core", editable = "../../libs/foundation/core" },
     { name = "tsn-db", editable = "../../libs/foundation/db" },
-]
-
-[[package]]
-name = "tsn-tts"
-version = "0.1.0"
-source = { editable = "../../libs/ai/tts" }
-dependencies = [
-    { name = "tsn-core" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "azure-cognitiveservices-speech", marker = "extra == 'azure'", specifier = ">=1.30.0" },
-    { name = "edge-tts", marker = "extra == 'edge'", specifier = ">=6.1.0" },
-    { name = "tsn-core", editable = "../../libs/foundation/core" },
-]
-provides-extras = ["edge", "azure"]
-
-[[package]]
-name = "tsn-videogen"
-version = "0.1.0"
-source = { editable = "../../libs/ai/videogen" }
-dependencies = [
-    { name = "tsn-core" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "tsn-core", editable = "../../libs/foundation/core" }]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = ">=0.6" },
 ]
 
 [[package]]

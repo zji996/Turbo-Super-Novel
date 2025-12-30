@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from capabilities import get_capability_router
+
 router = APIRouter(prefix="/v1/capabilities", tags=["capabilities"])
 
 
@@ -14,19 +16,34 @@ router = APIRouter(prefix="/v1/capabilities", tags=["capabilities"])
 
 @router.get("/tts/voices")
 async def list_tts_voices(
-    provider: str = "edge",
+    provider: str = "glm_tts",
     language: str | None = None,
 ) -> dict:
     """List available TTS voices.
 
     Args:
-        provider: TTS provider name (default: "edge").
+        provider: TTS provider name (default: "glm_tts").
         language: Filter by language code (e.g., "zh-CN").
     """
+    cap = get_capability_router("tts")
+    if getattr(cap, "provider_type", "local") == "remote" and hasattr(cap, "request_json"):
+        params = {"provider": provider}
+        if language is not None:
+            params["language"] = language
+        return await cap.request_json(
+            "GET",
+            "/v1/capabilities/tts/voices",
+            params=params,
+        )
+
     try:
         from tts import get_tts_provider
     except ImportError:
-        return {"error": "tts not installed", "voices": []}
+        return {
+            "provider": provider,
+            "voices": [],
+            "warning": "tts not installed (API is lightweight; set CAP_TTS_PROVIDER=remote to proxy a full TSN API)",
+        }
 
     try:
         tts = get_tts_provider(provider)
@@ -42,10 +59,17 @@ async def list_tts_voices(
 @router.get("/tts/providers")
 async def list_tts_providers() -> dict:
     """List available TTS providers."""
+    cap = get_capability_router("tts")
+    if getattr(cap, "provider_type", "local") == "remote" and hasattr(cap, "request_json"):
+        return await cap.request_json("GET", "/v1/capabilities/tts/providers")
+
     try:
         from tts import list_available_providers
     except ImportError:
-        return {"providers": [], "error": "tts not installed"}
+        return {
+            "providers": ["glm_tts"],
+            "warning": "tts not installed (API is lightweight; local mode assumes a worker can serve glm_tts)",
+        }
 
     return {"providers": list_available_providers()}
 
@@ -62,10 +86,24 @@ async def list_imagegen_models(provider: str | None = None) -> dict:
     Args:
         provider: Image generation provider name (default from env).
     """
+    cap = get_capability_router("imagegen")
+    if getattr(cap, "provider_type", "local") == "remote" and hasattr(cap, "request_json"):
+        params = {}
+        if provider is not None:
+            params["provider"] = provider
+        return await cap.request_json(
+            "GET",
+            "/v1/capabilities/imagegen/models",
+            params=params or None,
+        )
+
     try:
         from imagegen import get_imagegen_provider
     except ImportError:
-        return {"error": "imagegen not installed", "models": []}
+        return {
+            "models": [],
+            "warning": "imagegen not installed (API is lightweight; set CAP_IMAGEGEN_PROVIDER=remote to proxy a full TSN API)",
+        }
 
     try:
         imagegen = get_imagegen_provider(provider)
@@ -83,10 +121,17 @@ async def list_imagegen_models(provider: str | None = None) -> dict:
 @router.get("/imagegen/providers")
 async def list_imagegen_providers() -> dict:
     """List available image generation providers."""
+    cap = get_capability_router("imagegen")
+    if getattr(cap, "provider_type", "local") == "remote" and hasattr(cap, "request_json"):
+        return await cap.request_json("GET", "/v1/capabilities/imagegen/providers")
+
     try:
         from imagegen import list_available_providers
     except ImportError:
-        return {"providers": [], "error": "imagegen not installed"}
+        return {
+            "providers": [],
+            "warning": "imagegen not installed (API is lightweight; set CAP_IMAGEGEN_PROVIDER=remote to proxy a full TSN API)",
+        }
 
     return {"providers": list_available_providers()}
 
@@ -98,10 +143,24 @@ async def get_current_imagegen_model(provider: str | None = None) -> dict:
     Args:
         provider: Image generation provider name.
     """
+    cap = get_capability_router("imagegen")
+    if getattr(cap, "provider_type", "local") == "remote" and hasattr(cap, "request_json"):
+        params = {}
+        if provider is not None:
+            params["provider"] = provider
+        return await cap.request_json(
+            "GET",
+            "/v1/capabilities/imagegen/current-model",
+            params=params or None,
+        )
+
     try:
         from imagegen import get_imagegen_provider
     except ImportError:
-        return {"error": "imagegen not installed", "model": None}
+        return {
+            "model": None,
+            "warning": "imagegen not installed (API is lightweight; set CAP_IMAGEGEN_PROVIDER=remote to proxy a full TSN API)",
+        }
 
     try:
         imagegen = get_imagegen_provider(provider)

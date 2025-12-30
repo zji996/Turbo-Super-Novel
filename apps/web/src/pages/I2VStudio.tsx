@@ -5,7 +5,7 @@ import { JobPanel } from '../components/JobPanel';
 import { ResultPanel } from '../components/ResultPanel';
 import { useJobStorage, useJobPolling } from '../hooks';
 import { createI2VJob } from '../services/api';
-import type { Job, I2VParams } from '../types';
+import type { I2VJob, I2VParams } from '../types';
 import { DEFAULT_I2V_PARAMS } from '../types';
 
 export function I2VStudio() {
@@ -62,7 +62,7 @@ export function I2VStudio() {
             const response = await createI2VJob(imageFile, prompt.trim(), params);
 
             // Create local job record
-            const newJob: Job = {
+            const newJob: I2VJob = {
                 job_id: response.job_id,
                 job_type: 'i2v',
                 status: 'PENDING',

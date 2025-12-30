@@ -7,11 +7,11 @@ from pathlib import Path
 import uuid
 from uuid import uuid4
 
-from celery.result import AsyncResult
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from celery_app import celery_app
+import httpx
+from capabilities import get_capability_router
 from db import TTSJob, ensure_schema, session_scope
 from s3 import ensure_bucket_exists, s3_bucket_name, s3_client
 
@@ -48,7 +48,10 @@ class CreateTTSJobRequest(BaseModel):
 
 @router.get("/providers")
 async def list_tts_providers() -> dict:
-    return {"providers": ["glm_tts", "edge"]}
+    cap = get_capability_router("tts")
+    if getattr(cap, "provider_type", "local") == "remote" and hasattr(cap, "request_json"):
+        return await cap.request_json("GET", "/v1/tts/providers")
+    return {"providers": ["glm_tts"]}
 
 
 @router.post("/prompt-audios")
@@ -139,31 +142,42 @@ async def list_prompt_audios(limit: int = 100) -> dict:
 
 @router.post("/jobs")
 async def create_tts_job(request: CreateTTSJobRequest) -> dict:
+    cap = get_capability_router("tts")
     provider = _normalize_provider(request.provider)
-    if provider not in {"glm_tts", "edge"}:
-        raise HTTPException(status_code=422, detail=f"Unsupported provider: {provider}")
 
-    if provider == "glm_tts":
-        if not request.prompt_text or not request.prompt_text.strip():
-            raise HTTPException(
-                status_code=422, detail="prompt_text is required for glm_tts"
+    if getattr(cap, "provider_type", "local") == "remote":
+        try:
+            return await cap.submit_tts_job(
+                text=request.text,
+                provider=provider,
+                prompt_text=request.prompt_text,
+                prompt_audio_id=request.prompt_audio_id,
+                sample_rate=int(request.sample_rate),
+                config=dict(request.config or {}),
             )
-        if not request.prompt_audio_id or not request.prompt_audio_id.strip():
+        except httpx.HTTPStatusError as exc:
             raise HTTPException(
-                status_code=422, detail="prompt_audio_id is required for glm_tts"
-            )
-        if int(request.sample_rate) not in (24000, 32000):
-            raise HTTPException(
-                status_code=422, detail="glm_tts sample_rate must be 24000 or 32000"
-            )
+                status_code=int(exc.response.status_code),
+                detail=(exc.response.text or str(exc)),
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if provider != "glm_tts":
+        raise HTTPException(status_code=422, detail=f"Unsupported provider: {provider}")
+    if not request.prompt_text or not request.prompt_text.strip():
+        raise HTTPException(status_code=422, detail="prompt_text is required for glm_tts")
+    if not request.prompt_audio_id or not request.prompt_audio_id.strip():
+        raise HTTPException(status_code=422, detail="prompt_audio_id is required for glm_tts")
+    if int(request.sample_rate) not in (24000, 32000):
+        raise HTTPException(status_code=422, detail="glm_tts sample_rate must be 24000 or 32000")
 
     bucket = s3_bucket_name()
     ensure_bucket_exists(bucket)
 
     job_uuid = uuid4()
     job_id = str(job_uuid)
-    output_ext = ".wav" if provider == "glm_tts" else ".mp3"
-    output_key = f"tts/outputs/{job_id}{output_ext}"
+    output_key = f"tts/outputs/{job_id}.wav"
 
     prompt_audio_bucket: str | None = None
     prompt_audio_key: str | None = None
@@ -193,21 +207,17 @@ async def create_tts_job(request: CreateTTSJobRequest) -> dict:
         )
 
     try:
-        celery_app.send_task(
-            "tts.synthesize",
-            task_id=job_id,
-            kwargs={
-                "job_id": job_id,
-                "text": request.text,
-                "provider": provider,
-                "output_bucket": bucket,
-                "output_key": output_key,
-                "prompt_text": request.prompt_text,
-                "prompt_audio_bucket": prompt_audio_bucket,
-                "prompt_audio_key": prompt_audio_key,
-                "sample_rate": int(request.sample_rate),
-                **(request.config or {}),
-            },
+        await cap.submit_tts_job(
+            job_id=job_id,
+            text=request.text,
+            provider=provider,
+            output_bucket=bucket,
+            output_key=output_key,
+            prompt_text=request.prompt_text,
+            prompt_audio_bucket=prompt_audio_bucket,
+            prompt_audio_key=prompt_audio_key,
+            sample_rate=int(request.sample_rate),
+            **(request.config or {}),
         )
     except Exception as exc:
         ensure_schema()
@@ -236,6 +246,42 @@ async def create_tts_job_with_prompt(
     sample_rate: int = Form(24000),
 ) -> dict:
     """Create a TTS job with an uploaded prompt audio (multipart)."""
+    cap = get_capability_router("tts")
+    if getattr(cap, "provider_type", "local") == "remote":
+        url = f"{getattr(cap, 'base_url', '').rstrip('/')}/v1/tts/jobs/with-prompt"
+        if not url.startswith("http"):
+            raise HTTPException(status_code=500, detail="Invalid remote base_url for CAP_TTS_REMOTE_URL")
+        headers: dict[str, str] = {}
+        api_key = getattr(cap, "api_key", None)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                url,
+                data={
+                    "text": text,
+                    "prompt_text": prompt_text,
+                    "provider": provider,
+                    "sample_rate": str(sample_rate),
+                },
+                files={
+                    "prompt_audio": (
+                        prompt_audio.filename or "prompt.wav",
+                        prompt_audio.file,
+                        prompt_audio.content_type or "audio/wav",
+                    )
+                },
+                headers=headers,
+            )
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise HTTPException(
+                    status_code=int(exc.response.status_code),
+                    detail=(exc.response.text or str(exc)),
+                ) from exc
+            return resp.json()
+
     provider_norm = _normalize_provider(provider)
     if provider_norm != "glm_tts":
         raise HTTPException(
@@ -283,20 +329,16 @@ async def create_tts_job_with_prompt(
         )
 
     try:
-        celery_app.send_task(
-            "tts.synthesize",
-            task_id=job_id,
-            kwargs={
-                "job_id": job_id,
-                "text": text,
-                "provider": provider_norm,
-                "output_bucket": bucket,
-                "output_key": output_key,
-                "prompt_text": prompt_text,
-                "prompt_audio_bucket": bucket,
-                "prompt_audio_key": prompt_key,
-                "sample_rate": int(sample_rate),
-            },
+        await cap.submit_tts_job(
+            job_id=job_id,
+            text=text,
+            provider=provider_norm,
+            output_bucket=bucket,
+            output_key=output_key,
+            prompt_text=prompt_text,
+            prompt_audio_bucket=bucket,
+            prompt_audio_key=prompt_key,
+            sample_rate=int(sample_rate),
         )
     except Exception as exc:
         ensure_schema()
@@ -318,8 +360,19 @@ async def create_tts_job_with_prompt(
 
 @router.get("/jobs/{job_id}")
 async def get_tts_job(job_id: str) -> dict:
-    result: AsyncResult = celery_app.AsyncResult(job_id)
-    payload: dict = {"job_id": job_id, "celery_status": result.status}
+    cap = get_capability_router("tts")
+    if getattr(cap, "provider_type", "local") == "remote":
+        try:
+            return await cap.get_tts_job(job_id)
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(
+                status_code=int(exc.response.status_code),
+                detail=(exc.response.text or str(exc)),
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    payload: dict = await cap.get_tts_job(job_id)
 
     try:
         job_uuid = uuid.UUID(job_id)
@@ -351,16 +404,4 @@ async def get_tts_job(job_id: str) -> dict:
     except Exception as exc:
         payload["db_error"] = str(exc)
 
-    if result.successful():
-        try:
-            payload["result"] = result.get(timeout=0)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-    elif result.failed():
-        try:
-            payload["error"] = str(result.result)
-        except Exception:
-            payload["error"] = "unknown"
-
     return payload
-

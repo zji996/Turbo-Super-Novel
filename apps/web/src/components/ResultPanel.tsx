@@ -1,7 +1,7 @@
-import type { Job, I2VParams } from '../types';
+import type { I2VJob, I2VParams } from '../types';
 
 interface ResultPanelProps {
-    job: Job | null;
+    job: I2VJob | null;
     onRetry?: (params: I2VParams) => void;
 }
 

@@ -8,9 +8,11 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-    { path: '/tools/i2v', label: 'I2V Studio', icon: '🎬' },
-    { path: '/projects', label: 'Projects', icon: '📁', disabled: true },
-    { path: '/assets', label: 'Assets', icon: '🖼️', disabled: true },
+    { path: '/dashboard', label: '仪表板', icon: '🏠' },
+    { path: '/tools/tts', label: 'TTS 语音', icon: '🗣️' },
+    { path: '/tools/imagegen', label: '图像生成', icon: '🖼️' },
+    { path: '/tools/i2v', label: '视频生成', icon: '🎬' },
+    { path: '/projects', label: '项目', icon: '📁' },
 ];
 
 export function Sidebar() {
@@ -30,7 +32,7 @@ export function Sidebar() {
             <nav className="flex-1 p-4">
                 <div className="mb-4">
                     <h2 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider px-3 mb-2">
-                        Tools
+                        Navigation
                     </h2>
                     <ul className="space-y-1">
                         {navItems.map((item) => (

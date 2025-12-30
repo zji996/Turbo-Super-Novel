@@ -12,20 +12,16 @@ dependencies = [
   "python-multipart>=0.0.9",
   "pydantic>=2.0",
   "tsn-core",
-  "tsn-videogen",
   "tsn-db",
   "tsn-novel",
-  "tsn-tts",
-  "tsn-imagegen",
+  "tsn-capabilities",
 ]
 
 [tool.uv.sources]
 tsn-core = { path = "../../libs/foundation/core", editable = true }
 tsn-db = { path = "../../libs/foundation/db", editable = true }
-tsn-tts = { path = "../../libs/ai/tts", editable = true }
-tsn-imagegen = { path = "../../libs/ai/imagegen", editable = true }
-tsn-videogen = { path = "../../libs/ai/videogen", editable = true }
 tsn-novel = { path = "../../libs/business/novel", editable = true }
+tsn-capabilities = { path = "../../libs/foundation/capabilities", editable = true }
 
 [dependency-groups]
 dev = [

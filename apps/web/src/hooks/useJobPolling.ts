@@ -1,14 +1,14 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { Job, CeleryStatus, DBStatus } from '../types';
+import type { I2VJob, CeleryStatus, DBStatus } from '../types';
 import { getJobStatus } from '../services/api';
 
 interface UseJobPollingOptions {
     /** Callback when job status updates */
-    onStatusUpdate?: (job: Job) => void;
+    onStatusUpdate?: (job: I2VJob) => void;
     /** Callback when job completes (SUCCESS or FAILURE) */
-    onComplete?: (job: Job) => void;
+    onComplete?: (job: I2VJob) => void;
     /** Callback on error */
-    onError?: (error: Error, job: Job) => void;
+    onError?: (error: Error, job: I2VJob) => void;
 }
 
 /** Polling intervals in ms */
@@ -25,8 +25,8 @@ const MAX_POLLING_DURATION = 30 * 60 * 1000;
  * Hook for polling job status with adaptive intervals
  */
 export function useJobPolling(
-    jobs: Job[],
-    updateJob: (jobId: string, updates: Partial<Job>) => void,
+    jobs: I2VJob[],
+    updateJob: (jobId: string, updates: Partial<I2VJob>) => void,
     options: UseJobPollingOptions = {}
 ) {
     const { onStatusUpdate, onComplete, onError } = options;
@@ -34,7 +34,7 @@ export function useJobPolling(
     const startTimeRef = useRef<Map<string, number>>(new Map());
     const [isPolling, setIsPolling] = useState(false);
 
-    const pollJob = useCallback(async (job: Job) => {
+    const pollJob = useCallback(async (job: I2VJob) => {
         const startTime = startTimeRef.current.get(job.job_id) || Date.now();
 
         // Check timeout
@@ -50,7 +50,7 @@ export function useJobPolling(
         try {
             const response = await getJobStatus(job.job_id);
 
-            const updates: Partial<Job> = {
+            const updates: Partial<I2VJob> = {
                 status: response.status,
                 db_status: response.db?.status as DBStatus | undefined,
                 output_url: response.output_url,
@@ -85,7 +85,7 @@ export function useJobPolling(
         }
     }, [updateJob, onStatusUpdate, onComplete, onError]);
 
-    const scheduleNextPoll = useCallback((jobId: string, job: Job, interval: number) => {
+    const scheduleNextPoll = useCallback((jobId: string, job: I2VJob, interval: number) => {
         const existing = pollingRef.current.get(jobId);
         if (existing) {
             clearTimeout(existing);
@@ -106,7 +106,7 @@ export function useJobPolling(
         setIsPolling(pollingRef.current.size > 0);
     }, []);
 
-    const startPolling = useCallback((job: Job) => {
+    const startPolling = useCallback((job: I2VJob) => {
         if (!startTimeRef.current.has(job.job_id)) {
             startTimeRef.current.set(job.job_id, Date.now());
         }

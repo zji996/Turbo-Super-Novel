@@ -17,13 +17,11 @@ from db import (
     try_insert_job,
     try_update_job,
 )
-from videogen.paths import turbodiffusion_models_root, wan22_i2v_model_paths
-from videogen.registry import list_artifacts
 from celery_app import celery_app
 from s3 import ensure_bucket_exists, s3_bucket_name, s3_client
 
 # Import new routers
-from routes import novel_router, capabilities_router, tts_router
+from routes import novel_router, capabilities_router, tts_router, llm_router, imagegen_router
 
 app = FastAPI(title="Turbo-Super-Novel API", version="0.2.0")
 logger = logging.getLogger(__name__)
@@ -32,6 +30,8 @@ logger = logging.getLogger(__name__)
 app.include_router(novel_router)
 app.include_router(capabilities_router)
 app.include_router(tts_router)
+app.include_router(llm_router)
+app.include_router(imagegen_router)
 
 
 @app.get("/health")
@@ -46,6 +46,15 @@ def paths() -> dict:
 
 @app.get("/v1/turbodiffusion/models")
 def turbodiffusion_models() -> dict:
+    try:
+        from videogen.paths import turbodiffusion_models_root, wan22_i2v_model_paths
+        from videogen.registry import list_artifacts
+    except ImportError:
+        return {
+            "error": "videogen not installed (API is lightweight; run a full TSN API or install tsn-videogen)",
+            "available": [],
+        }
+
     root = turbodiffusion_models_root()
     model_paths = wan22_i2v_model_paths(quantized=True)
     artifacts = list_artifacts("TurboWan2.2-I2V-A14B-720P", quantized=True)

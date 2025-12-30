@@ -1,8 +1,8 @@
-import type { Job } from '../types';
+import type { I2VJob } from '../types';
 import { formatDistanceToNow } from '../utils/time';
 
 interface JobPanelProps {
-    jobs: Job[];
+    jobs: I2VJob[];
     selectedJobId: string | null;
     onSelectJob: (jobId: string) => void;
     onRemoveJob: (jobId: string) => void;
@@ -43,7 +43,7 @@ export function JobPanel({ jobs, selectedJobId, onSelectJob, onRemoveJob }: JobP
 }
 
 interface JobCardProps {
-    job: Job;
+    job: I2VJob;
     isSelected: boolean;
     onSelect: () => void;
     onRemove: () => void;

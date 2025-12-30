@@ -1,0 +1,22 @@
+[project]
+name = "tsn-capabilities"
+version = "0.1.0"
+description = "Capability routing layer - local worker or remote API"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "httpx>=0.25",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/capabilities"]
+
