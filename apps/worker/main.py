@@ -6,7 +6,9 @@ def main() -> None:
     print(summary)
     print(
         "\nTo run Celery worker:\n"
-        "  uv run --project apps/worker --directory apps/worker celery -A celery_app:celery_app worker -l info\n"
+        "  WORKER_CAPABILITIES=tts,videogen CAP_GPU_MODE=resident \\\n"
+        "  uv run --project apps/worker --directory apps/worker celery -A celery_app:celery_app worker -l info \\\n"
+        "    -Q celery,cap.tts,cap.videogen --concurrency 1 --prefetch-multiplier 1\n"
     )
 
 

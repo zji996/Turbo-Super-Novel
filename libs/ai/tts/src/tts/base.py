@@ -110,3 +110,11 @@ class TTSProvider(ABC):
             "ja-JP": "ja-JP-NanamiNeural",
         }
         return defaults.get(language, "zh-CN-XiaoxiaoNeural")
+
+    def unload(self) -> None:
+        """Release any held resources (GPU weights, caches, temp dirs).
+
+        Default implementation is a no-op for lightweight/remote providers.
+        """
+
+        return

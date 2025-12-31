@@ -23,18 +23,19 @@ class _DummyProvider:
 
 
 def test_synthesize_tts_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # noqa: ANN001
-    from tts_tasks import synthesize_tts
+    from capabilities.tts import synthesize_tts
 
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("tts_tasks._s3_client", lambda: _DummyS3())
-    monkeypatch.setattr("tts_tasks._db_update_tts_job", lambda **_: None)
-    monkeypatch.setattr("tts_tasks._audio_duration_seconds", lambda _path: None)
+    monkeypatch.setattr("capabilities.tts._s3_client", lambda: _DummyS3())
+    monkeypatch.setattr("capabilities.tts._db_update_tts_job", lambda **_: None)
+    monkeypatch.setattr("capabilities.tts._audio_duration_seconds", lambda _path: None)
 
     tts_mod = ModuleType("tts")
     tts_mod.TTSError = RuntimeError
     tts_mod.get_tts_provider = lambda *args, **kwargs: _DummyProvider()  # noqa: ARG005
     monkeypatch.setitem(sys.modules, "tts", tts_mod)
 
+    assert synthesize_tts.name == "cap.tts.synthesize"
     out = synthesize_tts(
         job_id="00000000-0000-0000-0000-000000000000",
         text="hello",

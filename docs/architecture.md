@@ -78,8 +78,19 @@ libs/foundation/capabilities/
 
 基于 Celery 的异步任务执行器，运行在 GPU 机器上：
 
-- **TTS Engine**：GLM-TTS 模型推理
-- **Video Engine**：TurboDiffusion I2V 模型推理
+- **TTS Capability**：GLM-TTS / Edge-TTS 等语音合成
+- **VideoGen Capability**：TurboDiffusion I2V 推理
+
+Worker 采用 **Capability-based** 架构：
+
+- 单进程单并发（推荐 `--concurrency 1 --prefetch-multiplier 1`）
+- 支持同时监听多个队列（如 `cap.tts, cap.videogen`）
+- 运行时根据任务类型自动切换 Capability，并在切换时卸载旧模型、释放显存
+
+相关环境变量：
+
+- `WORKER_CAPABILITIES=tts,videogen`
+- `CAP_GPU_MODE=resident|ondemand`
 
 > **注意**：图像生成 (imagegen) 目前设计为通过远程 Z-Image API 提供，不在本地 Worker 中执行。
 
@@ -236,8 +247,9 @@ Turbo-Super-Novel/
 关键环境变量：
 
 ```bash
-# GPU 模式
-GPU_MODE=balanced  # fast | balanced | lowvram
+# Worker 配置
+WORKER_CAPABILITIES=tts,videogen
+CAP_GPU_MODE=ondemand  # ondemand | resident
 
 # 服务连接
 CELERY_BROKER_URL=redis://localhost:6379/0

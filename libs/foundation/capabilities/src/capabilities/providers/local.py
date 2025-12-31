@@ -29,8 +29,9 @@ class LocalProvider(BaseProvider):
         app = self._get_celery_app()
         job_id = str(kwargs.pop("job_id", "") or uuid4())
         app.send_task(
-            "tts.synthesize",
+            "cap.tts.synthesize",
             task_id=job_id,
+            queue="cap.tts",
             kwargs={"job_id": job_id, "text": text, "provider": provider, **kwargs},
         )
         return {"job_id": job_id, "status": "submitted", "provider_type": "local"}
@@ -61,9 +62,56 @@ class LocalProvider(BaseProvider):
     async def get_imagegen_job(self, job_id: str) -> dict:
         raise NotImplementedError("imagegen local provider is not implemented yet")
 
-    async def submit_videogen_job(self, *, prompt: str, image_path: str, **kwargs: Any) -> dict:
-        raise NotImplementedError("videogen local provider is not implemented yet")
+    async def submit_videogen_job(
+        self, *, prompt: str, image_path: str, **kwargs: Any
+    ) -> dict:
+        """Submit video generation job to local Celery worker."""
+        app = self._get_celery_app()
+        job_id = str(kwargs.pop("job_id", "") or uuid4())
+
+        input_bucket = kwargs.pop("input_bucket", None)
+        input_key = kwargs.pop("input_key", None)
+        output_bucket = kwargs.pop("output_bucket", None)
+        output_key = kwargs.pop("output_key", None)
+
+        if not all([input_bucket, input_key, output_bucket, output_key]):
+            raise ValueError(
+                "videogen requires input_bucket, input_key, output_bucket, output_key"
+            )
+
+        app.send_task(
+            "cap.videogen.generate",
+            task_id=job_id,
+            queue="cap.videogen",
+            kwargs={
+                "job_id": job_id,
+                "prompt": prompt,
+                "input_bucket": input_bucket,
+                "input_key": input_key,
+                "output_bucket": output_bucket,
+                "output_key": output_key,
+                **kwargs,
+            },
+        )
+        return {"job_id": job_id, "status": "submitted", "provider_type": "local"}
 
     async def get_videogen_job(self, job_id: str) -> dict:
-        raise NotImplementedError("videogen local provider is not implemented yet")
+        """Get video generation job status from Celery."""
+        from celery.result import AsyncResult
 
+        app = self._get_celery_app()
+        result: AsyncResult = app.AsyncResult(job_id)
+        payload: dict[str, Any] = {"job_id": job_id, "celery_status": result.status}
+
+        if result.successful():
+            try:
+                payload["result"] = result.get(timeout=0)
+            except Exception as exc:
+                payload["result_error"] = str(exc)
+        elif result.failed():
+            try:
+                payload["error"] = str(result.result)
+            except Exception:
+                payload["error"] = "unknown"
+
+        return payload

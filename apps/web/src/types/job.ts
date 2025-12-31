@@ -1,5 +1,5 @@
 /** Job types supported by the platform */
-export type JobType = 'i2v' | 't2v' | 'tts' | 'imagegen';
+export type JobType = 'i2v' | 't2v';
 
 /** Celery task status */
 export type CeleryStatus = 'PENDING' | 'STARTED' | 'SUCCESS' | 'FAILURE';
@@ -25,21 +25,6 @@ export interface I2VParams {
 }
 
 /** TTS job parameters */
-export interface TTSParams {
-    provider: string;
-    sample_rate: number;
-    prompt_audio_id: string;
-    prompt_text: string;
-}
-
-/** Image generation parameters */
-export interface ImageGenParams {
-    model?: string;
-    width?: number;
-    height?: number;
-    steps?: number;
-}
-
 /** I2V job input data */
 export type I2VInputs = Record<string, unknown> & {
     prompt: string;
@@ -51,7 +36,7 @@ interface BaseJob<TJobType extends JobType, TParams, TInputs extends Record<stri
     job_type: TJobType;
     status: CeleryStatus;
     db_status?: DBStatus;
-    output_url?: string;
+    video_url?: string;
     error?: string;
     inputs: TInputs;
     params: TParams;
@@ -60,11 +45,9 @@ interface BaseJob<TJobType extends JobType, TParams, TInputs extends Record<stri
 }
 
 export type I2VJob = BaseJob<'i2v' | 't2v', I2VParams, I2VInputs>;
-export type TTSJob = BaseJob<'tts', TTSParams, Record<string, unknown>>;
-export type ImageGenJob = BaseJob<'imagegen', ImageGenParams, Record<string, unknown>>;
 
 /** Complete job record */
-export type Job = I2VJob | TTSJob | ImageGenJob;
+export type Job = I2VJob;
 
 /** API response for job creation */
 export interface CreateJobResponse {
@@ -85,16 +68,6 @@ export interface CreateJobResponse {
 }
 
 /** API response for job status query */
-export interface JobStatusResponse {
-    status: CeleryStatus;
-    db?: {
-        status?: DBStatus;
-    };
-    result?: unknown;
-    output_url?: string;
-    error?: string;
-}
-
 /** Default parameters for I2V */
 export const DEFAULT_I2V_PARAMS: I2VParams = {
     seed: 0,

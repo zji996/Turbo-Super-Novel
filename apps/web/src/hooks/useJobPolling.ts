@@ -51,9 +51,9 @@ export function useJobPolling(
             const response = await getJobStatus(job.job_id);
 
             const updates: Partial<I2VJob> = {
-                status: response.status,
+                status: response.status as CeleryStatus,
                 db_status: response.db?.status as DBStatus | undefined,
-                output_url: response.output_url,
+                video_url: response.video_url,
                 error: response.error,
                 updated_at: Date.now(),
             };

@@ -12,10 +12,8 @@ import {
     cancelImageGenJob,
     isJobTerminal,
     isJobPending,
-    type ImageGenJob,
-    type ImageGenParams,
-    type ImageGenStatus,
 } from '../services/imagegen';
+import type { ImageGenJob, ImageGenParams, ImageGenStatus } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -42,7 +40,10 @@ export interface UseImageGenJobResult {
     /** Whether the job is being polled (in progress) */
     isPolling: boolean;
     /** Submit a new image generation job */
-    submit: (prompt: string, params?: ImageGenParams) => Promise<ImageGenJob | null>;
+    submit: (
+        prompt: string,
+        params?: Omit<ImageGenParams, 'prompt'>
+    ) => Promise<ImageGenJob | null>;
     /** Cancel the current job */
     cancel: () => Promise<void>;
     /** Clear the current job state */
@@ -158,11 +159,11 @@ export function useImageGenJob(
     );
 
     const submit = useCallback(
-        async (prompt: string, params?: ImageGenParams): Promise<ImageGenJob | null> => {
+        async (prompt: string, params?: Omit<ImageGenParams, 'prompt'>): Promise<ImageGenJob | null> => {
             setIsSubmitting(true);
 
             try {
-                const newJob = await createImageGenJob(prompt, params);
+                const newJob = await createImageGenJob({ prompt, ...(params || {}) });
                 setJob(newJob);
 
                 // Start polling if job is pending

@@ -8,11 +8,20 @@ from .db import (
     try_insert_job,
     try_update_job,
 )
-from .models import Base, TurboDiffusionJob, TTSJob, NovelProject, NovelScene, NovelPipeline
+from .models import (
+    Base,
+    NovelPipeline,
+    NovelProject,
+    NovelScene,
+    SpeakerProfile,
+    TTSJob,
+    VideoGenJob,
+)
 
 __all__ = [
     "Base",
-    "TurboDiffusionJob",
+    "VideoGenJob",
+    "SpeakerProfile",
     "TTSJob",
     "NovelProject",
     "NovelScene",

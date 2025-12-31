@@ -5,47 +5,13 @@
  * which proxies requests to the remote Z-Image API.
  */
 
+import type { ImageGenJob, ImageGenParams, ImageGenStatus } from '../types';
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
-
-export interface ImageGenParams {
-    width?: number;
-    height?: number;
-    num_inference_steps?: number;
-    guidance_scale?: number;
-    seed?: number;
-    negative_prompt?: string;
-}
-
-export type ImageGenStatus =
-    | 'PENDING'
-    | 'STARTED'
-    | 'PROGRESS'
-    | 'SUCCESS'
-    | 'FAILURE'
-    | 'REVOKED'
-    | 'CANCELLED';
-
-export interface ImageGenJob {
-    job_id: string;
-    status: ImageGenStatus;
-    progress?: number;
-    image_url?: string;
-    error?: string;
-    error_code?: string;
-    error_hint?: string;
-    provider_type?: string;
-    result?: {
-        prompt?: string;
-        width?: number;
-        height?: number;
-        seed?: number;
-        created_at?: string;
-    };
-}
 
 export interface ImageGenHistoryItem {
     task_id: string;
@@ -69,22 +35,16 @@ export interface ImageGenHistoryItem {
  * Create a new image generation job.
  */
 export async function createImageGenJob(
-    prompt: string,
-    params?: ImageGenParams
+    params: ImageGenParams
 ): Promise<ImageGenJob> {
-    const body: Record<string, unknown> = { prompt };
-
-    if (params) {
-        if (params.width !== undefined) body.width = params.width;
-        if (params.height !== undefined) body.height = params.height;
-        if (params.num_inference_steps !== undefined)
-            body.num_inference_steps = params.num_inference_steps;
-        if (params.guidance_scale !== undefined)
-            body.guidance_scale = params.guidance_scale;
-        if (params.seed !== undefined) body.seed = params.seed;
-        if (params.negative_prompt !== undefined)
-            body.negative_prompt = params.negative_prompt;
-    }
+    const body: Record<string, unknown> = { prompt: params.prompt };
+    if (params.width !== undefined) body.width = params.width;
+    if (params.height !== undefined) body.height = params.height;
+    if (params.num_inference_steps !== undefined)
+        body.num_inference_steps = params.num_inference_steps;
+    if (params.guidance_scale !== undefined) body.guidance_scale = params.guidance_scale;
+    if (params.seed !== undefined) body.seed = params.seed;
+    if (params.negative_prompt !== undefined) body.negative_prompt = params.negative_prompt;
 
     const resp = await fetch(`${API_BASE}/v1/imagegen/jobs`, {
         method: 'POST',

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from capabilities import get_capability_router
+from schemas import ImageGenJobResponse
 
 router = APIRouter(prefix="/v1/imagegen", tags=["imagegen"])
 
@@ -34,18 +35,6 @@ class CreateImageGenJobRequest(BaseModel):
     negative_prompt: str | None = Field(
         default=None, max_length=4000, description="Negative prompt"
     )
-
-
-class ImageGenJobResponse(BaseModel):
-    """Response for image generation job."""
-
-    job_id: str
-    status: str
-    progress: int | None = None
-    image_url: str | None = None
-    error: str | None = None
-    error_hint: str | None = None
-    provider_type: str = "remote"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

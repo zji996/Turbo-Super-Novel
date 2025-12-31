@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -295,3 +296,40 @@ class GLMTTSProvider(TTSProvider):
                 sample_rate=self._sample_rate,
             )
         ]
+
+    def unload(self) -> None:
+        with self._load_lock:
+            if not self._loaded:
+                return
+
+            self._m = None
+            self._frontend = None
+            self._text_frontend = None
+            self._llm = None
+            self._flow = None
+            self._loaded = False
+
+            runtime_dir = self._runtime_dir
+            self._runtime_dir = None
+
+        if runtime_dir is not None:
+            try:
+                shutil.rmtree(runtime_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        try:
+            import gc
+
+            gc.collect()
+        except Exception:
+            pass
+
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+        except Exception:
+            pass

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -12,8 +12,8 @@ class Base(DeclarativeBase):
     pass
 
 
-class TurboDiffusionJob(Base):
-    __tablename__ = "turbodiffusion_jobs"
+class VideoGenJob(Base):
+    __tablename__ = "videogen_jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -41,6 +41,35 @@ class TurboDiffusionJob(Base):
     )
 
 
+class SpeakerProfile(Base):
+    """TTS speaker profile - encapsulates voice settings for TTS synthesis."""
+
+    __tablename__ = "speaker_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    provider: Mapped[str] = mapped_column(String(32), default="glm_tts")
+    sample_rate: Mapped[int] = mapped_column(default=24000)
+
+    prompt_text: Mapped[str] = mapped_column(Text)
+    prompt_audio_bucket: Mapped[str] = mapped_column(String(255))
+    prompt_audio_key: Mapped[str] = mapped_column(Text)
+
+    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    is_default: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class TTSJob(Base):
     """TTS synthesis job - tracks a single TTS generation request."""
 
@@ -54,6 +83,13 @@ class TTSJob(Base):
 
     text: Mapped[str] = mapped_column(Text)
     provider: Mapped[str] = mapped_column(String(32))
+
+    speaker_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("speaker_profiles.id"),
+        nullable=True,
+        index=True,
+    )
 
     prompt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     prompt_audio_bucket: Mapped[str | None] = mapped_column(String(255), nullable=True)

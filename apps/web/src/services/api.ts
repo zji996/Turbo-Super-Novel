@@ -1,4 +1,4 @@
-import type { I2VParams, CreateJobResponse, JobStatusResponse } from '../types';
+import type { I2VParams, CreateJobResponse, VideoGenJob } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -18,7 +18,7 @@ export async function createI2VJob(
     formData.append('quantized', String(params.quantized));
     formData.append('duration_seconds', String(params.duration_seconds));
 
-    const response = await fetch(`${API_BASE_URL}/v1/turbodiffusion/wan22-i2v/jobs`, {
+    const response = await fetch(`${API_BASE_URL}/v1/videogen/wan22-i2v/jobs`, {
         method: 'POST',
         body: formData,
     });
@@ -34,8 +34,8 @@ export async function createI2VJob(
 /**
  * Get the status of a job
  */
-export async function getJobStatus(jobId: string): Promise<JobStatusResponse> {
-    const response = await fetch(`${API_BASE_URL}/v1/turbodiffusion/jobs/${jobId}`);
+export async function getJobStatus(jobId: string): Promise<VideoGenJob> {
+    const response = await fetch(`${API_BASE_URL}/v1/videogen/jobs/${jobId}`);
 
     if (!response.ok) {
         const error = await response.text();
@@ -49,7 +49,7 @@ export async function getJobStatus(jobId: string): Promise<JobStatusResponse> {
  * Get available models (for diagnostics)
  */
 export async function getModels(): Promise<Record<string, { exists: boolean; path?: string }>> {
-    const response = await fetch(`${API_BASE_URL}/v1/turbodiffusion/models`);
+    const response = await fetch(`${API_BASE_URL}/v1/videogen/models`);
 
     if (!response.ok) {
         throw new Error('Failed to get models');

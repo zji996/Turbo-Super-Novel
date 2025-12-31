@@ -57,22 +57,9 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _gpu_mode_defaults() -> tuple[bool, bool]:
-    """
-    Return (resident_gpu_default, cuda_cleanup_default) derived from GPU_MODE.
-
-    GPU_MODE is a higher-level switch typically expanded by `scripts/tsn_manage.sh`. When users
-    only export GPU_MODE (e.g. via IDE envFile) but not the derived TD_* vars, we still want
-    predictable behavior.
-    """
-    mode = str(os.getenv("GPU_MODE", "")).strip().lower()
-    if mode == "fast":
-        return True, False
-    if mode == "balanced":
-        return False, True
-    if mode == "lowvram":
-        return False, True
-    return False, True
+def _resident_gpu_enabled() -> bool:
+    mode = str(os.getenv("CAP_GPU_MODE", "")).strip().lower()
+    return mode == "resident"
 
 
 _RESIDENT_LOCK = threading.Lock()
@@ -262,8 +249,7 @@ def generate_wan22_i2v(
     configure_hf_home()
     configure_hf_offline()
 
-    resident_default, _ = _gpu_mode_defaults()
-    resident_gpu = _env_bool("TD_RESIDENT_GPU", resident_default)
+    resident_gpu = _resident_gpu_enabled()
 
     log.info(f"Computing embedding for prompt: {prompt}")
     umt5_device = os.getenv("TD_UMT5_DEVICE", "cuda")

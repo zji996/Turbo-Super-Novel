@@ -20,8 +20,8 @@ def test_create_tts_job_requires_prompt_for_glm() -> None:
 def test_upload_prompt_audio_requires_wav() -> None:
     client = TestClient(app)
     resp = client.post(
-        "/v1/tts/prompt-audios",
-        data={"name": "test", "text": "hello"},
-        files={"audio": ("ref.mp3", b"not-wav", "audio/mpeg")},
+        "/v1/tts/speaker-profiles",
+        data={"name": "test", "prompt_text": "hello"},
+        files={"prompt_audio": ("ref.mp3", b"not-wav", "audio/mpeg")},
     )
     assert resp.status_code == 422

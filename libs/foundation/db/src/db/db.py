@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import TurboDiffusionJob
+from .models import VideoGenJob
 
 
 def database_url() -> str:
@@ -71,7 +71,7 @@ def ensure_schema() -> tuple[bool, str | None]:
     return True, None
 
 
-def try_insert_job(job: TurboDiffusionJob) -> tuple[bool, str | None]:
+def try_insert_job(job: VideoGenJob) -> tuple[bool, str | None]:
     ok, err = ensure_schema()
     if not ok:
         return False, err
@@ -101,7 +101,7 @@ def try_update_job(
 
     try:
         with session_scope() as session:
-            row = session.get(TurboDiffusionJob, job_uuid)
+            row = session.get(VideoGenJob, job_uuid)
             if row is None:
                 return False, "job not found"
             if status is not None:

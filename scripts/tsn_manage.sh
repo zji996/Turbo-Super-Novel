@@ -320,57 +320,46 @@ api_cmd() {
   echo "\"$UV_BIN\" run --project apps/api --directory apps/api uvicorn main:app --host $host --port $port $reload_arg"
 }
 
-resolve_gpu_mode() {
-  # GPU_MODE 是高层语义配置，自动推断底层参数
-  # 用户也可以手动覆盖任何底层参数
-  local mode="${GPU_MODE:-balanced}"
-  
-  case "$mode" in
-    fast)
-      # 🚀 速度优先: 模型常驻 + 并发 + threads 池
-      export TD_RESIDENT_GPU="${TD_RESIDENT_GPU:-1}"
-      export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-2}"
-      export CELERY_POOL="${CELERY_POOL:-threads}"
-      export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-0}"
-      echo "[GPU_MODE=fast] 模型常驻显存, 并发=${CELERY_CONCURRENCY}, 池=${CELERY_POOL}" >&2
-      ;;
-    balanced)
-      # ⚖️ 平衡模式: 显存更稳（等同 lowvram 默认策略）
-      # 说明：Wan2.2 I2V 在常驻模式下仍可能触发峰值显存过高；balanced 默认改为按需加载。
-      export TD_RESIDENT_GPU="${TD_RESIDENT_GPU:-0}"
-      export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-1}"
-      export CELERY_POOL="${CELERY_POOL:-}"
-      export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-1}"
-      echo "[GPU_MODE=balanced] 按需加载模型, 单任务处理" >&2
-      ;;
-    lowvram)
-      # 💾 显存优先: 按需加载 + 单任务
-      export TD_RESIDENT_GPU="${TD_RESIDENT_GPU:-0}"
-      export CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-1}"
-      export CELERY_POOL="${CELERY_POOL:-}"
-      export TD_CUDA_CLEANUP="${TD_CUDA_CLEANUP:-1}"
-      echo "[GPU_MODE=lowvram] 按需加载模型, 节省显存" >&2
-      ;;
-    *)
-      echo "[warn] 未知的 GPU_MODE='$mode', 使用 balanced 模式" >&2
-      GPU_MODE=balanced
-      resolve_gpu_mode
-      return
-      ;;
-  esac
-}
-
 worker_cmd() {
-  # 先解析 GPU_MODE，设置默认值
-  resolve_gpu_mode
+  local concurrency_explicit="0"
+  if [[ -n "${CELERY_CONCURRENCY+x}" ]]; then
+    concurrency_explicit="1"
+  fi
+
+  local pool_explicit="0"
+  if [[ -n "${CELERY_POOL+x}" ]]; then
+    pool_explicit="1"
+  fi
+
+  local capabilities="${WORKER_CAPABILITIES:-tts,videogen}"
+  local queues="celery"
+  local cap_count="0"
+  IFS=',' read -r -a _tsn_caps <<<"$capabilities"
+  local cap
+  for cap in "${_tsn_caps[@]}"; do
+    cap="$(echo "$cap" | xargs)"
+    if [[ -n "$cap" ]]; then
+      queues="${queues},cap.${cap}"
+      cap_count=$((cap_count + 1))
+    fi
+  done
+
+  export CAP_GPU_MODE="${CAP_GPU_MODE:-ondemand}"
 
   local concurrency="${CELERY_CONCURRENCY:-1}"
   local prefetch="${CELERY_PREFETCH_MULTIPLIER:-1}"
   local pool="${CELERY_POOL:-}"
-  local resident_gpu="${TD_RESIDENT_GPU:-0}"
 
-  # 如果用户手动设置了底层参数但没设置 pool，自动推断
-  if [[ -z "$pool" && "$resident_gpu" == "1" ]]; then
+  # Capability switching requires a single consumer to avoid concurrent GPU use.
+  if [[ "$cap_count" -gt 1 && "$concurrency_explicit" == "0" ]]; then
+    concurrency="1"
+    if [[ "$pool_explicit" == "0" ]]; then
+      pool=""
+    fi
+  fi
+
+  # If user increases concurrency without explicitly setting pool, default to threads.
+  if [[ -z "$pool" && "$concurrency" != "1" ]]; then
     pool="threads"
   fi
 
@@ -385,7 +374,7 @@ worker_cmd() {
   if [[ -n "$pool" ]]; then
     pool_arg=" --pool ${pool}"
   fi
-  echo "\"$UV_BIN\" run --project apps/worker --directory apps/worker celery -A celery_app:celery_app worker -l ${CELERY_LOG_LEVEL:-info}${pool_arg} --concurrency ${concurrency} --prefetch-multiplier ${prefetch}${extra_args}"
+  echo "\"$UV_BIN\" run --project apps/worker --directory apps/worker celery -A celery_app:celery_app worker -l ${CELERY_LOG_LEVEL:-info}${pool_arg} -Q ${queues} --concurrency ${concurrency} --prefetch-multiplier ${prefetch}${extra_args}"
 }
 
 web_cmd() {
@@ -479,9 +468,8 @@ usage() {
   scripts/tsn_manage.sh status
 
 GPU 模式 (最重要的配置):
-  GPU_MODE=fast       🚀 速度优先 (24GB+ 显存, 并发处理)
-  GPU_MODE=balanced   ⚖️ 平衡模式 (16-24GB 显存, 推荐)
-  GPU_MODE=lowvram    💾 显存优先 (12GB 及以下)
+  CAP_GPU_MODE=resident  模型常驻（直到切换 capability）
+  CAP_GPU_MODE=ondemand  每个任务完成后卸载（默认）
 
 环境变量:
   TSN_ENV_FILE=...    指定 env 文件 (默认: .env)

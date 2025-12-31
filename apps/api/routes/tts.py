@@ -12,13 +12,11 @@ from pydantic import BaseModel, Field
 
 import httpx
 from capabilities import get_capability_router
-from db import TTSJob, ensure_schema, session_scope
-from s3 import ensure_bucket_exists, s3_bucket_name, s3_client
+from db import SpeakerProfile, TTSJob, ensure_schema, session_scope
+from s3 import ensure_bucket_exists, presigned_get_url, s3_bucket_name, s3_client
+from schemas import TTSJobResponse
 
 router = APIRouter(prefix="/v1/tts", tags=["tts"])
-
-
-_PROMPT_AUDIO_PREFIX = "tts/prompt-audios/"
 
 
 def _normalize_provider(provider: str) -> str:
@@ -26,15 +24,6 @@ def _normalize_provider(provider: str) -> str:
     if raw in {"glm_tts", "glm-tts", "glmtts"}:
         return "glm_tts"
     return raw
-
-
-def _presigned_get_url(*, bucket: str, key: str, expires_in: int = 3600) -> str:
-    client = s3_client()
-    return client.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": bucket, "Key": key},
-        ExpiresIn=int(expires_in),
-    )
 
 
 class CreateTTSJobRequest(BaseModel):
@@ -46,6 +35,69 @@ class CreateTTSJobRequest(BaseModel):
     config: dict = Field(default_factory=dict)
 
 
+class CreateSpeakerProfileRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    provider: str = Field(default="glm_tts")
+    sample_rate: int = Field(default=24000)
+    prompt_text: str = Field(..., min_length=1)
+    prompt_audio_id: str = Field(...)
+    config: dict = Field(default_factory=dict)
+    is_default: bool = False
+
+
+class SpeakerProfileResponse(BaseModel):
+    id: str
+    name: str
+    description: str | None
+    provider: str
+    sample_rate: int
+    prompt_text: str
+    prompt_audio_url: str | None
+    is_default: bool
+    created_at: str
+    updated_at: str
+
+
+class CreateJobWithProfileRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=5000)
+    profile_id: str = Field(...)
+
+
+def _speaker_profile_response(profile: SpeakerProfile) -> SpeakerProfileResponse:
+    return SpeakerProfileResponse(
+        id=str(profile.id),
+        name=str(profile.name),
+        description=profile.description,
+        provider=str(profile.provider),
+        sample_rate=int(profile.sample_rate),
+        prompt_text=str(profile.prompt_text),
+        prompt_audio_url=presigned_get_url(
+            bucket=str(profile.prompt_audio_bucket), key=str(profile.prompt_audio_key)
+        ),
+        is_default=bool(profile.is_default),
+        created_at=profile.created_at.isoformat() if profile.created_at else "",
+        updated_at=profile.updated_at.isoformat() if profile.updated_at else "",
+    )
+
+
+def _parse_config_json(value: str | None) -> dict:
+    if value is None:
+        return {}
+    raw = str(value).strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid config JSON: {exc}") from exc
+    if parsed is None:
+        return {}
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail="config must be a JSON object")
+    return parsed
+
+
 @router.get("/providers")
 async def list_tts_providers() -> dict:
     cap = get_capability_router("tts")
@@ -54,90 +106,207 @@ async def list_tts_providers() -> dict:
     return {"providers": ["glm_tts"]}
 
 
-@router.post("/prompt-audios")
-async def upload_prompt_audio(
+@router.post("/speaker-profiles", response_model=SpeakerProfileResponse)
+async def create_speaker_profile(
     name: str = Form(...),
-    text: str = Form(...),
-    audio: UploadFile = File(...),
-) -> dict:
-    """Upload a reference audio for zero-shot TTS."""
-    if not name.strip():
+    prompt_text: str = Form(...),
+    prompt_audio: UploadFile = File(...),
+    description: str | None = Form(None),
+    provider: str = Form("glm_tts"),
+    sample_rate: int = Form(24000),
+    is_default: bool = Form(False),
+    config: str | None = Form(None),
+) -> SpeakerProfileResponse:
+    if not str(name).strip():
         raise HTTPException(status_code=422, detail="name cannot be empty")
-    if not text.strip():
-        raise HTTPException(status_code=422, detail="text cannot be empty")
+    if not str(prompt_text).strip():
+        raise HTTPException(status_code=422, detail="prompt_text cannot be empty")
 
-    suffix = Path(audio.filename or "").suffix.lower()
+    suffix = Path(prompt_audio.filename or "").suffix.lower()
     if suffix != ".wav":
         raise HTTPException(status_code=422, detail="prompt audio must be a .wav file")
 
-    bucket = s3_bucket_name()
-    ensure_bucket_exists(bucket)
-    client = s3_client()
+    config_obj = _parse_config_json(config)
+    provider_norm = _normalize_provider(provider)
 
-    prompt_id = str(uuid4())
-    audio_key = f"{_PROMPT_AUDIO_PREFIX}{prompt_id}.wav"
-    meta_key = f"{_PROMPT_AUDIO_PREFIX}{prompt_id}.json"
+    try:
+        bucket = s3_bucket_name()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        ensure_bucket_exists(bucket)
+        client = s3_client()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    profile_uuid = uuid4()
+    profile_id = str(profile_uuid)
+    audio_key = f"tts/speaker-profiles/{profile_id}/prompt.wav"
 
     client.upload_fileobj(
-        audio.file,
+        prompt_audio.file,
         bucket,
         audio_key,
-        ExtraArgs={"ContentType": audio.content_type or "audio/wav"},
+        ExtraArgs={"ContentType": prompt_audio.content_type or "audio/wav"},
     )
 
-    meta = {"id": prompt_id, "name": name, "text": text, "audio_key": audio_key}
-    client.put_object(
-        Bucket=bucket,
-        Key=meta_key,
-        Body=json.dumps(meta, ensure_ascii=False).encode("utf-8"),
-        ContentType="application/json; charset=utf-8",
-    )
+    ok, err = ensure_schema()
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"DB not ready: {err}")
 
-    return {
-        "id": prompt_id,
-        "name": name,
-        "text": text,
-        "bucket": bucket,
-        "audio_key": audio_key,
-        "audio_url": _presigned_get_url(bucket=bucket, key=audio_key),
-    }
+    from sqlalchemy import update
+
+    with session_scope() as session:
+        if is_default:
+            session.execute(update(SpeakerProfile).values(is_default=False))
+        profile = SpeakerProfile(
+            id=profile_uuid,
+            name=str(name),
+            description=description,
+            provider=provider_norm,
+            sample_rate=int(sample_rate),
+            prompt_text=str(prompt_text),
+            prompt_audio_bucket=bucket,
+            prompt_audio_key=audio_key,
+            config=config_obj,
+            is_default=bool(is_default),
+        )
+        session.add(profile)
+        session.flush()
+        return _speaker_profile_response(profile)
 
 
-@router.get("/prompt-audios")
-async def list_prompt_audios(limit: int = 100) -> dict:
-    """List available prompt audios (best-effort)."""
-    bucket = s3_bucket_name()
-    client = s3_client()
+@router.get("/speaker-profiles")
+async def list_speaker_profiles() -> dict:
+    ok, err = ensure_schema()
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"DB not ready: {err}")
 
-    resp = client.list_objects_v2(
-        Bucket=bucket, Prefix=_PROMPT_AUDIO_PREFIX, MaxKeys=min(int(limit), 1000)
-    )
-    contents = resp.get("Contents") or []
-    meta_keys = [obj["Key"] for obj in contents if str(obj.get("Key", "")).endswith(".json")]
+    from sqlalchemy import select
 
-    items: list[dict] = []
-    for key in meta_keys:
-        try:
-            obj = client.get_object(Bucket=bucket, Key=key)
-            body = obj["Body"].read()
-            meta = json.loads(body.decode("utf-8"))
-            audio_key = meta.get("audio_key")
-            if not audio_key:
-                continue
-            items.append(
-                {
-                    "id": meta.get("id") or Path(key).stem,
-                    "name": meta.get("name"),
-                    "text": meta.get("text"),
-                    "bucket": bucket,
-                    "audio_key": audio_key,
-                    "audio_url": _presigned_get_url(bucket=bucket, key=audio_key),
-                }
+    with session_scope() as session:
+        rows = session.scalars(select(SpeakerProfile).order_by(SpeakerProfile.created_at.desc()))
+        return {"speaker_profiles": [_speaker_profile_response(r).model_dump() for r in rows]}
+
+
+@router.get("/speaker-profiles/{profile_id}", response_model=SpeakerProfileResponse)
+async def get_speaker_profile(profile_id: str) -> SpeakerProfileResponse:
+    try:
+        pid = uuid.UUID(profile_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid profile_id")
+
+    ok, err = ensure_schema()
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"DB not ready: {err}")
+
+    with session_scope() as session:
+        row = session.get(SpeakerProfile, pid)
+        if row is None:
+            raise HTTPException(status_code=404, detail="SpeakerProfile not found")
+        return _speaker_profile_response(row)
+
+
+@router.put("/speaker-profiles/{profile_id}", response_model=SpeakerProfileResponse)
+async def update_speaker_profile(
+    profile_id: str,
+    name: str | None = Form(None),
+    prompt_text: str | None = Form(None),
+    prompt_audio: UploadFile | None = File(None),
+    description: str | None = Form(None),
+    provider: str | None = Form(None),
+    sample_rate: int | None = Form(None),
+    is_default: bool | None = Form(None),
+    config: str | None = Form(None),
+) -> SpeakerProfileResponse:
+    try:
+        pid = uuid.UUID(profile_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid profile_id")
+
+    ok, err = ensure_schema()
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"DB not ready: {err}")
+
+    config_obj = _parse_config_json(config) if config is not None else None
+
+    from sqlalchemy import update
+
+    with session_scope() as session:
+        row = session.get(SpeakerProfile, pid)
+        if row is None:
+            raise HTTPException(status_code=404, detail="SpeakerProfile not found")
+
+        if name is not None:
+            if not str(name).strip():
+                raise HTTPException(status_code=422, detail="name cannot be empty")
+            row.name = str(name)
+        if prompt_text is not None:
+            if not str(prompt_text).strip():
+                raise HTTPException(status_code=422, detail="prompt_text cannot be empty")
+            row.prompt_text = str(prompt_text)
+        if description is not None:
+            row.description = description
+        if provider is not None:
+            row.provider = _normalize_provider(provider)
+        if sample_rate is not None:
+            row.sample_rate = int(sample_rate)
+        if config_obj is not None:
+            row.config = config_obj
+
+        if is_default is not None:
+            if is_default:
+                session.execute(update(SpeakerProfile).values(is_default=False))
+            row.is_default = bool(is_default)
+
+        if prompt_audio is not None:
+            suffix = Path(prompt_audio.filename or "").suffix.lower()
+            if suffix != ".wav":
+                raise HTTPException(status_code=422, detail="prompt audio must be a .wav file")
+
+            try:
+                ensure_bucket_exists(str(row.prompt_audio_bucket))
+                client = s3_client()
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            client.upload_fileobj(
+                prompt_audio.file,
+                str(row.prompt_audio_bucket),
+                str(row.prompt_audio_key),
+                ExtraArgs={"ContentType": prompt_audio.content_type or "audio/wav"},
             )
-        except Exception:
-            continue
 
-    return {"prompt_audios": items}
+        session.flush()
+        return _speaker_profile_response(row)
+
+
+@router.delete("/speaker-profiles/{profile_id}")
+async def delete_speaker_profile(profile_id: str) -> dict:
+    try:
+        pid = uuid.UUID(profile_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid profile_id")
+
+    ok, err = ensure_schema()
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"DB not ready: {err}")
+
+    with session_scope() as session:
+        row = session.get(SpeakerProfile, pid)
+        if row is None:
+            raise HTTPException(status_code=404, detail="SpeakerProfile not found")
+
+        bucket = str(row.prompt_audio_bucket)
+        key = str(row.prompt_audio_key)
+        session.delete(row)
+
+    try:
+        s3_client().delete_object(Bucket=bucket, Key=key)
+    except Exception:
+        pass
+
+    return {"deleted": True}
 
 
 @router.post("/jobs")
@@ -172,8 +341,11 @@ async def create_tts_job(request: CreateTTSJobRequest) -> dict:
     if int(request.sample_rate) not in (24000, 32000):
         raise HTTPException(status_code=422, detail="glm_tts sample_rate must be 24000 or 32000")
 
-    bucket = s3_bucket_name()
-    ensure_bucket_exists(bucket)
+    try:
+        bucket = s3_bucket_name()
+        ensure_bucket_exists(bucket)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     job_uuid = uuid4()
     job_id = str(job_uuid)
@@ -183,10 +355,12 @@ async def create_tts_job(request: CreateTTSJobRequest) -> dict:
     prompt_audio_key: str | None = None
     if request.prompt_audio_id:
         prompt_audio_bucket = bucket
-        if "/" in request.prompt_audio_id:
-            prompt_audio_key = request.prompt_audio_id
-        else:
-            prompt_audio_key = f"{_PROMPT_AUDIO_PREFIX}{request.prompt_audio_id}.wav"
+        if "/" not in request.prompt_audio_id:
+            raise HTTPException(
+                status_code=422,
+                detail="prompt_audio_id must be a full S3 key (e.g. tts/speaker-profiles/<id>/prompt.wav); consider /v1/tts/jobs/with-profile",
+            )
+        prompt_audio_key = request.prompt_audio_id
 
     ensure_schema()
     with session_scope() as session:
@@ -358,12 +532,12 @@ async def create_tts_job_with_prompt(
     return {"job_id": job_id, "status": "submitted"}
 
 
-@router.get("/jobs/{job_id}")
-async def get_tts_job(job_id: str) -> dict:
+@router.post("/jobs/with-profile")
+async def create_tts_job_with_profile(request: CreateJobWithProfileRequest) -> dict:
     cap = get_capability_router("tts")
-    if getattr(cap, "provider_type", "local") == "remote":
+    if getattr(cap, "provider_type", "local") == "remote" and hasattr(cap, "request_json"):
         try:
-            return await cap.get_tts_job(job_id)
+            return await cap.request_json("POST", "/v1/tts/jobs/with-profile", json=request.model_dump())
         except httpx.HTTPStatusError as exc:
             raise HTTPException(
                 status_code=int(exc.response.status_code),
@@ -372,36 +546,133 @@ async def get_tts_job(job_id: str) -> dict:
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    payload: dict = await cap.get_tts_job(job_id)
+    try:
+        profile_uuid = uuid.UUID(request.profile_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid profile_id")
+
+    ok, err = ensure_schema()
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"DB not ready: {err}")
+
+    try:
+        output_bucket = s3_bucket_name()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        ensure_bucket_exists(output_bucket)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    job_uuid = uuid4()
+    job_id = str(job_uuid)
+    output_key = f"tts/outputs/{job_id}.wav"
+
+    with session_scope() as session:
+        profile = session.get(SpeakerProfile, profile_uuid)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="SpeakerProfile not found")
+
+        provider = _normalize_provider(str(profile.provider))
+        sample_rate = int(profile.sample_rate)
+        prompt_text = str(profile.prompt_text)
+        prompt_audio_bucket = str(profile.prompt_audio_bucket)
+        prompt_audio_key = str(profile.prompt_audio_key)
+        config = dict(profile.config or {})
+
+        session.add(
+            TTSJob(
+                id=job_uuid,
+                status="CREATED",
+                text=request.text,
+                provider=provider,
+                speaker_profile_id=profile_uuid,
+                prompt_text=prompt_text,
+                prompt_audio_bucket=prompt_audio_bucket,
+                prompt_audio_key=prompt_audio_key,
+                output_bucket=output_bucket,
+                output_key=output_key,
+                sample_rate=sample_rate,
+                config=config,
+            )
+        )
+
+    try:
+        await cap.submit_tts_job(
+            job_id=job_id,
+            text=request.text,
+            provider=provider,
+            output_bucket=output_bucket,
+            output_key=output_key,
+            prompt_text=prompt_text,
+            prompt_audio_bucket=prompt_audio_bucket,
+            prompt_audio_key=prompt_audio_key,
+            sample_rate=sample_rate,
+            **config,
+        )
+    except Exception as exc:
+        ensure_schema()
+        with session_scope() as session:
+            row = session.get(TTSJob, job_uuid)
+            if row is not None:
+                row.status = "SUBMIT_FAILED"
+                row.error = str(exc)
+        raise HTTPException(status_code=500, detail=f"Failed to submit task: {exc}") from exc
+
+    ensure_schema()
+    with session_scope() as session:
+        row = session.get(TTSJob, job_uuid)
+        if row is not None:
+            row.status = "SUBMITTED"
+
+    return {"job_id": job_id, "status": "submitted"}
+
+
+@router.get("/jobs/{job_id}", response_model=TTSJobResponse)
+async def get_tts_job(job_id: str) -> TTSJobResponse:
+    cap = get_capability_router("tts")
+    provider_type = getattr(cap, "provider_type", "local")
+
+    try:
+        payload: dict = await cap.get_tts_job(job_id)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=int(exc.response.status_code),
+            detail=(exc.response.text or str(exc)),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     try:
         job_uuid = uuid.UUID(job_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid job_id")
 
+    celery_status = payload.get("celery_status") or payload.get("status")
+    status = str(celery_status or "PENDING")
+    error = payload.get("error")
+    output_url: str | None = None
+    audio_duration_seconds: float | None = None
+
     try:
         ensure_schema()
         with session_scope() as session:
             row = session.get(TTSJob, job_uuid)
             if row is not None:
-                payload["db"] = {
-                    "status": row.status,
-                    "provider": row.provider,
-                    "output": {"bucket": row.output_bucket, "key": row.output_key},
-                    "prompt_audio": {
-                        "bucket": row.prompt_audio_bucket,
-                        "key": row.prompt_audio_key,
-                    },
-                    "audio_duration_seconds": row.audio_duration_seconds,
-                    "created_at": row.created_at.isoformat() if row.created_at else None,
-                    "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-                    "error": row.error,
-                }
+                status = str(row.status or status)
+                error = row.error or error
+                audio_duration_seconds = row.audio_duration_seconds
                 if row.output_bucket and row.output_key:
-                    payload["output_url"] = _presigned_get_url(
-                        bucket=row.output_bucket, key=row.output_key
-                    )
+                    output_url = presigned_get_url(bucket=row.output_bucket, key=row.output_key)
     except Exception as exc:
         payload["db_error"] = str(exc)
 
-    return payload
+    return TTSJobResponse(
+        job_id=job_id,
+        status=status,
+        error=error,
+        provider_type=str(payload.get("provider_type") or provider_type or "local"),
+        output_url=output_url or payload.get("output_url"),
+        audio_duration_seconds=audio_duration_seconds,
+    )

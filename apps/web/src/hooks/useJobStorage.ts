@@ -22,7 +22,7 @@ function normalizeJob(raw: unknown): I2VJob | null {
         job_type: job.job_type || 'i2v',
         status: job.status || 'PENDING',
         db_status: job.db_status,
-        output_url: job.output_url,
+        video_url: job.video_url ?? (job as unknown as { output_url?: string }).output_url,
         error: job.error,
         inputs: {
             prompt: typeof inputs.prompt === 'string' ? inputs.prompt : '',

@@ -14,11 +14,12 @@ from db import (
     NovelProject,
     NovelScene,
     NovelPipeline,
+    SpeakerProfile,
     ensure_schema,
     session_scope,
 )
 from novel import parse_text_to_scenes
-from s3 import s3_bucket_name, s3_client
+from s3 import maybe_presign, s3_bucket_name
 
 router = APIRouter(prefix="/v1/novel", tags=["novel"])
 
@@ -300,19 +301,6 @@ async def get_project_scenes(project_id: str) -> list[dict]:
         )
         scenes = session.scalars(stmt).all()
 
-        def _maybe_presign(bucket: str | None, key: str | None) -> str | None:
-            if not bucket or not key:
-                return None
-            try:
-                client = s3_client()
-                return client.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": bucket, "Key": key},
-                    ExpiresIn=3600,
-                )
-            except Exception:
-                return None
-
         return [
             {
                 "id": str(s.id),
@@ -320,9 +308,9 @@ async def get_project_scenes(project_id: str) -> list[dict]:
                 "text": s.text,
                 "image_prompt": s.image_prompt,
                 "status": s.status,
-                "audio_url": _maybe_presign(s.audio_bucket, s.audio_key),
-                "image_url": _maybe_presign(s.image_bucket, s.image_key),
-                "video_url": _maybe_presign(s.video_bucket, s.video_key),
+                "audio_url": maybe_presign(s.audio_bucket, s.audio_key),
+                "image_url": maybe_presign(s.image_bucket, s.image_key),
+                "video_url": maybe_presign(s.video_bucket, s.video_key),
             }
             for s in scenes
         ]
@@ -403,28 +391,40 @@ async def start_pipeline(project_id: str, request: StartPipelineRequest) -> dict
 
         if request.pipeline_type == "TTS_ONLY":
             tts_cfg = (project.config or {}).get("tts") or {}
-            provider = str(tts_cfg.get("provider") or "glm_tts")
-            sample_rate = int(tts_cfg.get("sample_rate") or 24000)
-            prompt_text = tts_cfg.get("prompt_text")
-            prompt_audio_id = tts_cfg.get("prompt_audio_id")
-            extra_config = dict(tts_cfg.get("config") or {})
+            profile_id = tts_cfg.get("profile_id")
+            if not profile_id or not str(profile_id).strip():
+                raise HTTPException(
+                    status_code=422,
+                    detail="Project config missing tts.profile_id (required for TTS_ONLY)",
+                )
+            try:
+                profile_uuid = uuid.UUID(str(profile_id))
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid tts.profile_id")
+
+            profile = session.get(SpeakerProfile, profile_uuid)
+            if profile is None:
+                raise HTTPException(status_code=422, detail="TTS speaker profile not found")
+
+            provider = str(profile.provider or "glm_tts")
+            sample_rate = int(profile.sample_rate or 24000)
+            prompt_text = str(profile.prompt_text or "")
+            prompt_audio_bucket = str(profile.prompt_audio_bucket or s3_bucket_name())
+            prompt_audio_key = str(profile.prompt_audio_key or "")
+            extra_config = dict(profile.config or {})
+            extra_config.update(dict(tts_cfg.get("config") or {}))
 
             if provider in {"glm_tts", "glm-tts", "glmtts"}:
-                if not prompt_text or not str(prompt_text).strip():
+                if not prompt_text.strip():
                     raise HTTPException(
                         status_code=422,
-                        detail="Project config missing tts.prompt_text (required for glm_tts)",
+                        detail="TTS speaker profile missing prompt_text (required for glm_tts)",
                     )
-                if not prompt_audio_id or not str(prompt_audio_id).strip():
+                if not prompt_audio_bucket.strip() or not prompt_audio_key.strip():
                     raise HTTPException(
                         status_code=422,
-                        detail="Project config missing tts.prompt_audio_id (required for glm_tts)",
+                        detail="TTS speaker profile missing prompt_audio_bucket/prompt_audio_key (required for glm_tts)",
                     )
-                prompt_audio_bucket = s3_bucket_name()
-                if "/" in str(prompt_audio_id):
-                    prompt_audio_key = str(prompt_audio_id)
-                else:
-                    prompt_audio_key = f"tts/prompt-audios/{prompt_audio_id}.wav"
 
             stmt = (
                 select(NovelScene)
@@ -454,7 +454,8 @@ async def start_pipeline(project_id: str, request: StartPipelineRequest) -> dict
         try:
             for scene_id in scene_ids:
                 celery_app.send_task(
-                    "novel.scene.tts",
+                    "cap.tts.scene",
+                    queue="cap.tts",
                     kwargs={
                         "scene_id": scene_id,
                         "project_id": project_id,

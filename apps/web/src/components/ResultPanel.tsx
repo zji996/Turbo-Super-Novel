@@ -20,7 +20,7 @@ export function ResultPanel({ job, onRetry }: ResultPanelProps) {
     }
 
     const isRunning = job.status === 'PENDING' || job.status === 'STARTED';
-    const isSuccess = job.status === 'SUCCESS' && job.output_url;
+    const isSuccess = job.status === 'SUCCESS' && job.video_url;
     const isFailure = job.status === 'FAILURE' || job.error;
     const durationSeconds = Number.isFinite(job.params.duration_seconds) ? job.params.duration_seconds : 5;
 
@@ -54,7 +54,7 @@ export function ResultPanel({ job, onRetry }: ResultPanelProps) {
                     {/* Video Player */}
                     <div className="rounded-xl overflow-hidden bg-black">
                         <video
-                            src={job.output_url}
+                            src={job.video_url}
                             controls
                             autoPlay
                             loop
@@ -73,7 +73,7 @@ export function ResultPanel({ job, onRetry }: ResultPanelProps) {
                         </div>
 
                         <a
-                            href={job.output_url}
+                            href={job.video_url}
                             download
                             target="_blank"
                             rel="noopener noreferrer"

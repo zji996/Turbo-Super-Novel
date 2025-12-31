@@ -45,3 +45,24 @@ def ensure_bucket_exists(bucket: str) -> None:
         client.create_bucket(Bucket=bucket)
     except Exception:
         client.head_bucket(Bucket=bucket)
+
+
+def presigned_get_url(*, bucket: str, key: str, expires_in: int = 3600) -> str | None:
+    """Generate presigned GET URL for S3 object."""
+
+    try:
+        return s3_client().generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=expires_in,
+        )
+    except Exception:
+        return None
+
+
+def maybe_presign(bucket: str | None, key: str | None) -> str | None:
+    """Generate presigned URL if bucket and key are provided."""
+
+    if not bucket or not key:
+        return None
+    return presigned_get_url(bucket=bucket, key=key)
