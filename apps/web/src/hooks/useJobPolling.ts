@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { I2VJob, CeleryStatus, DBStatus } from '../types';
-import { getJobStatus } from '../services/api';
+import { getJobStatus } from '../services/videogen';
 
 interface UseJobPollingOptions {
     /** Callback when job status updates */

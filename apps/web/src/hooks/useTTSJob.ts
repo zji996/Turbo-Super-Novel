@@ -90,8 +90,7 @@ export function useTTSJob(
         const poll = async () => {
             try {
                 const data = await getTTSJobStatus(jobId);
-                const status =
-                    data.status || (data as any).db?.status || (data as any).celery_status || 'PENDING';
+                const status = data.status || data.db?.status || 'PENDING';
                 const outputUrl = data.output_url || null;
 
                 const nextState: TTSJobState = {

@@ -45,14 +45,8 @@ uv sync --project apps/worker -p python3.12
 - `models/2v/wan2.2-i2v-quant/TurboWan2.2-I2V-A14B-*-720P-quant.pth`
 
 ```bash
-uv run --project apps/api scripts/download_turbodiffusion_models.py \
+uv run --project apps/api scripts/setup/download_turbodiffusion_models.py \
   --model TurboWan2.2-I2V-A14B-720P --quantized
-```
-
-如果你之前已经把权重下载到了旧目录结构（`models/*`），可以一键迁移到新结构（`models/2v/*`）：
-
-```bash
-uv run --project apps/worker scripts/migrate_turbodiffusion_models_to_2v.py
 ```
 
 ## 6.（推荐）编译 turbo_diffusion_ops（量化权重需要）
@@ -64,7 +58,7 @@ uv run --project apps/worker scripts/migrate_turbodiffusion_models_to_2v.py
 ## 7. GPU Smoke Test（直接跑一次 I2V）
 
 ```bash
-uv run --project apps/worker scripts/smoke_turbodiffusion_i2v.py --input-index 0 --prompt-index 0
+uv run --project apps/worker scripts/test/smoke_turbodiffusion_i2v.py --input-index 0 --prompt-index 0
 ```
 
 成功标志：输出类似 `data/turbodiffusion/smoke/i2v_0_0.mp4` 的文件路径。

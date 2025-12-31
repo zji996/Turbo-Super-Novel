@@ -120,7 +120,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export TOKENIZERS_PARALLELISM=false
 
 uv run --project apps/worker \
-  python scripts/smoke_turbodiffusion_i2v.py \
+  python scripts/test/smoke_turbodiffusion_i2v.py \
     --input-index 0 --prompt-index 0 --num-steps 1
 ```
 
@@ -134,7 +134,7 @@ TurboDiffusion 上游的 UMT5 tokenizer 默认通过 `transformers.AutoTokenizer
 1) 下载 tokenizer 文件到 `models/2v/`（只拉 tokenizer，不拉模型权重）：
 
 ```bash
-uv run --project apps/api --group tools scripts/cache_umt5_tokenizer.py
+uv run --project apps/api --group tools scripts/setup/cache_umt5_tokenizer.py
 ```
 
 2) 在 `.env` 中开启离线并指向本地 tokenizer 目录：

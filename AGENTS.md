@@ -5,14 +5,22 @@
 ```
 repo_root/
 ├─ apps/         # 独立应用（各有 pyproject.toml）
+│   ├─ api/      # FastAPI 后端
+│   ├─ worker/   # Celery GPU Worker
+│   └─ web/      # React 前端
 ├─ libs/         # 共享代码库
-├─ infra/        # Docker / K8s / Terraform
-├─ scripts/      # 自动化脚本（无独立环境）
+│   ├─ ai/       # AI 模型封装 (tts, videogen, ops, dfloat11)
+│   └─ foundation/   # 基础组件 (core, db, capabilities)
+├─ infra/        # Docker Compose
+├─ scripts/      # 自动化脚本（无独立环境，借用 app）
+│   ├─ setup/    # 模型下载/环境设置
+│   ├─ test/     # Smoke 测试
+│   └─ tools/    # 独立工具
 ├─ docs/         # 全局文档
 ├─ assets/       # 静态资源
-├─ models/       # 模型权重 (Git Ignored, 通过 MODELS_DIR 读取)
-├─ data/         # 临时缓存 (Git Ignored, 通过 DATA_DIR 读取)
-├─ logs/         # 本地日志 (Git Ignored, 通过 LOG_DIR 读取)
+├─ models/       # 模型权重 (Git Ignored)
+├─ data/         # 临时缓存 (Git Ignored)
+├─ logs/         # 本地日志 (Git Ignored)
 └─ third_party/  # Git submodule
 ```
 
@@ -20,17 +28,25 @@ repo_root/
 
 | 任务 | 命令 |
 |------|------|
-| 启动 API | `uv run --project apps/api --directory apps/api uvicorn main:app --reload` |
-| 启动 Worker | `uv run --project apps/worker --directory apps/worker python main.py` |
+| 一键启动 | `bash scripts/tsn_up.sh` |
+| 一键停止 | `bash scripts/tsn_down.sh` |
+| 服务管理 | `bash scripts/tsn_manage.sh start\|stop\|status api\|worker\|web` |
 | 同步依赖 | `uv sync --project apps/api` |
-| 测试 API | `uv run --project apps/api --directory apps/api --group dev pytest` |
-| 测试 Worker | `uv run --project apps/worker --directory apps/worker --group dev pytest` |
+| 测试 | `uv run --project apps/api pytest` |
 | 代码质量 | `ruff check --fix` 或 `ruff format` |
 
 **脚本运行（借用环境）：**
-- 重型任务 (CUDA/PyTorch)：`uv run --project apps/worker scripts/xxx.py`
-- S3 任务 (boto3)：`uv run --project apps/api scripts/xxx.py`
-- 模型/Tokenizer 下载：`uv run --project apps/api --group tools scripts/xxx.py`
+
+```bash
+# 模型下载
+uv run --project apps/api scripts/setup/download_turbodiffusion_models.py
+
+# Smoke 测试
+uv run --project apps/api scripts/test/smoke_e2e_capabilities.py --api-base http://localhost:8000
+
+# 工具
+uv run --project apps/api scripts/tools/init_db.py
+```
 
 ## 依赖规则
 
@@ -44,24 +60,20 @@ dependencies = ["fastapi", "tsn-core"]
 tsn-core = { path = "../../libs/foundation/core", editable = true }
 ```
 
-**导入路径：** `from core import xxx`（绝对路径；不再使用 `libs.*` 命名空间）
+**导入路径：** `from core import xxx`（绝对路径；不使用 `libs.*` 命名空间）
 
 ## 环境变量
 
-`.env` 禁止提交，`.env.example` 必须提交。必需变量：
-- `MODELS_DIR`, `DATA_DIR`, `LOG_DIR`
-- `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET_NAME`
+`.env` 禁止提交，`.env.example` 必须提交。核心变量：
+- `CAP_GPU_MODE`, `WORKER_CAPABILITIES` - Worker 配置
+- `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET_NAME` - 存储
+- `DATABASE_URL`, `CELERY_BROKER_URL` - 基础设施
 
-## 禁止事项 (MUST NOT)
+## 禁止事项
 
 - `apps/A` import `apps/B`（横向引用）
 - `libs` import `apps`（反向引用）
-- `apps/` 下创建 `common/` 或 `utils/`（应放 `libs/`）
 - `scripts/` 包含 `pyproject.toml`
 - 裸跑 `uv run scripts/xxx.py`（必须借用 app 环境）
-- 新增顶层目录
 - 硬编码路径或密钥
 - `.env` 提交 Git
-- Crontab/脚本清理 S3 文件（用 Lifecycle Rules）
-- Dockerfile 使用 `COPY ../libs`（构建上下文必须为 repo_root）
-- 持久化数据存 `data/`（必须上传 S3/MinIO）

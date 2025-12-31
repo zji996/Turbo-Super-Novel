@@ -4,7 +4,7 @@ import { ParamsPanel } from '../components/ParamsPanel';
 import { JobPanel } from '../components/JobPanel';
 import { ResultPanel } from '../components/ResultPanel';
 import { useJobStorage, useJobPolling } from '../hooks';
-import { createI2VJob } from '../services/api';
+import { createI2VJob } from '../services/videogen';
 import type { I2VJob, I2VParams } from '../types';
 import { DEFAULT_I2V_PARAMS } from '../types';
 
