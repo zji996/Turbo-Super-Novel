@@ -4,146 +4,127 @@
 
 ---
 
-## 架构总览
-
-![架构总览](/home/zji/.gemini/antigravity/brain/be7e6701-4104-4280-951a-8220b2c8bfa1/architecture_diagram.png)
-
----
-
 ## 1. 系统层次
 
 TSN 采用**分层架构**，从上到下分为以下几个层次：
 
 ### 1.1 前端层 (`apps/web`)
 
-基于 Vite + React + TailwindCSS 构建的 Web 应用，提供以下功能模块：
+基于 Vite + React + CSS 构建的 Web 应用，提供以下功能模块：
 
-| 模块 | 说明 |
-|------|------|
-| **首页/仪表板** | 项目概览、快速入口 |
-| **TTS Studio** | 文本转语音工作台，支持 GLM-TTS 等多种引擎 |
-| **Image Studio** | 图像生成工作台，支持远程 Z-Image API |
-| **Video Studio** | 视频生成工作台，基于 TurboDiffusion I2V |
-| **Novel Workflow** | 有声小说/视频项目的端到端工作流 |
+| 模块 | 路由 | 说明 |
+|------|------|------|
+| **TTS Studio** | `/tools/tts` | 文本转语音，支持 Speaker Profile |
+| **Image Studio** | `/tools/image` | 图像生成（远程 Z-Image API）|
+| **I2V Studio** | `/tools/i2v` | 图生视频（TurboDiffusion）|
+| **LLM Studio** | `/tools/llm` | 对话测试/Prompt 调优 |
+
+**前端特性**：
+- **懒验证 + 健康跟踪**：任务成功/失败驱动能力状态，侧边栏实时显示
+- **AI 增强**：各 Studio 支持 `enhance_prompt` 开关，调用 LLM 优化提示词
 
 ### 1.2 API 层 (`apps/api`)
 
-基于 FastAPI 构建的后端服务，提供 RESTful API：
+基于 FastAPI 构建的后端服务：
 
 ```
-apps/api/
-├── main.py           # FastAPI 入口，挂载路由
-├── celery_app.py     # Celery 应用配置
-├── routes/
-│   ├── capabilities.py    # 通用 capability 路由
-│   ├── imagegen.py        # 图像生成 API
-│   ├── tts.py             # TTS API
-│   ├── novel.py           # Novel 项目 API
-│   └── llm.py             # LLM 代理 API
-└── s3.py             # S3/MinIO 存储工具
+apps/api/routes/
+├── capabilities.py   # 能力探测 /v1/capabilities/status
+├── imagegen.py       # 图像生成 API
+├── videogen.py       # 视频生成 API
+├── tts.py            # TTS API
+├── llm.py            # LLM 代理 API
+└── novel.py          # Novel 项目 API
 ```
 
 **核心设计：Capability Router**
 
-API 层的核心是 **Capability Router**，它根据配置将请求路由到不同的 Provider：
-
-- **Remote Provider**：转发请求到远程 API（如 Z-Image、远程 TTS 服务）
-- **Local Provider**：通过本机 Celery Worker 执行任务
+根据配置将请求路由到不同的 Provider：
+- **Remote Provider**：转发到远程 API（Z-Image、Deepseek LLM）
+- **Local Provider**：通过本机 Celery Worker 执行
 
 ### 1.3 能力路由层 (`libs/foundation/capabilities`)
 
-提供统一的能力抽象和路由机制：
-
 ```
 libs/foundation/capabilities/
-├── config.py         # 配置加载（从环境变量）
-├── router.py         # CapabilityRouter 实现
+├── config.py         # 从环境变量加载配置
+├── router.py         # CapabilityRouter
 └── providers/
-    ├── base.py       # 基类接口
-    ├── local.py      # 本地执行（Celery）
-    ├── remote.py     # 远程转发（HTTP）
-    └── llm.py        # LLM 特殊处理
+    ├── base.py       # 基类
+    ├── local.py      # Celery 调用
+    ├── remote.py     # HTTP 转发
+    └── llm.py        # LLM（含 enhance_prompt）
 ```
 
-**支持的 Capabilities：**
+**支持的 Capabilities**：
 
-| Capability | Provider 选项 | 说明 |
-|------------|---------------|------|
-| `tts` | local / remote | 文本转语音 |
-| `imagegen` | local / remote | 图像生成 |
-| `videogen` | local / remote | 视频生成 |
-| `llm` | remote only | 大语言模型 |
+| Capability | Provider | 说明 |
+|------------|----------|------|
+| `tts` | local | GLM-TTS 语音合成 |
+| `imagegen` | remote | Z-Image 图像生成 |
+| `videogen` | local | TurboDiffusion I2V |
+| `llm` | remote | Deepseek/OpenAI 对话 |
 
 ### 1.4 Worker 层 (`apps/worker`)
 
-基于 Celery 的异步任务执行器，运行在 GPU 机器上：
+基于 Celery 的异步任务执行器（GPU）：
 
-- **TTS Capability**：GLM-TTS / Edge-TTS 等语音合成
-- **VideoGen Capability**：TurboDiffusion I2V 推理
+```
+apps/worker/
+├── celery_app.py       # Celery 配置
+├── model_manager.py    # GPU 模型管理（互斥切换）
+└── capabilities/
+    ├── tts.py          # cap.tts.synthesize
+    └── videogen.py     # cap.videogen.generate
+```
 
-Worker 采用 **Capability-based** 架构：
-
-- 单进程单并发（推荐 `--concurrency 1 --prefetch-multiplier 1`）
-- 支持同时监听多个队列（如 `cap.tts, cap.videogen`）
-- 运行时根据任务类型自动切换 Capability，并在切换时卸载旧模型、释放显存
-
-相关环境变量：
-
-- `WORKER_CAPABILITIES=tts,videogen`
-- `CAP_GPU_MODE=resident|ondemand`
-
-> **注意**：图像生成 (imagegen) 目前设计为通过远程 Z-Image API 提供，不在本地 Worker 中执行。
+**Capability-based 架构**：
+- 单进程单并发（`--concurrency 1`）
+- 多队列监听（`cap.tts, cap.videogen`）
+- 动态模型切换 + 显存释放
 
 ---
 
-## 2. 远程服务集成
+## 2. 能力健康状态机
 
-### 2.1 LLM API (OpenAI/Deepseek)
-
-用于 Prompt 优化、脚本生成等文本处理任务。
+前端采用**懒验证 + 任务驱动**模式：
 
 ```
-CAP_LLM_PROVIDER=remote
-CAP_LLM_REMOTE_URL=https://api.deepseek.com/v1
-CAP_LLM_REMOTE_API_KEY=sk-xxxx
+┌──────────┐    首次探测      ┌──────────┐
+│ unknown  │ ──────────────▶ │ available│ ◀─── 任务成功
+└──────────┘   Worker在线    └────┬─────┘
+      │                            │
+      │ Worker不在线               │ 任务失败
+      ▼                            ▼
+┌──────────┐                 ┌──────────┐
+│unavailable│ ◀──────────────│  error   │
+└──────────┘                 └──────────┘
 ```
 
-### 2.2 Image Gen API (Z-Image)
-
-用于高质量图像生成，部署在局域网机器上。
-
-```
-CAP_IMAGEGEN_PROVIDER=remote
-CAP_IMAGEGEN_REMOTE_URL=http://192.168.8.24:8000
-CAP_IMAGEGEN_REMOTE_API_KEY=test_123456
-```
-
-**Z-Image API 概览：**
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/v1/images/generate` | POST | 创建生成任务 |
-| `/v1/tasks/{task_id}` | GET | 查询任务状态 |
-| `/v1/tasks/{task_id}/cancel` | POST | 取消任务 |
-| `/v1/history` | GET | 获取历史批次 |
-| `/v1/history/{batch_id}` | GET | 获取批次详情 |
-| `/generated-images/{path}` | GET | 访问生成的图片 |
+**优点**：
+- 不主动测试，避免 Worker 能力切换
+- 真实反映运行时健康状态
 
 ---
 
-## 3. 本机服务 (Worker)
+## 3. LLM 辅助能力
 
-### 3.1 TTS Engine (GLM-TTS)
+所有生成类 API 支持 `enhance_prompt` 参数：
 
-- 支持多种中文语音合成
-- 支持自定义音色（prompt audio）
-- 输出格式：WAV (44100Hz)
+```json
+POST /v1/imagegen/jobs
+{
+  "prompt": "一只猫",
+  "enhance_prompt": true  // 调用 LLM 优化
+}
+```
 
-### 3.2 Video Engine (TurboDiffusion I2V)
-
-- Image-to-Video 生成
-- 支持 DF11 量化模型（显存优化）
-- 输出格式：MP4 (16fps)
+**Context 类型**：
+| Context | 用途 |
+|---------|------|
+| `image_generation` | 图像提示词优化 |
+| `video_generation` | 视频提示词优化 |
+| `tts_text` | TTS 文本分句优化 |
 
 ---
 
@@ -159,99 +140,42 @@ services:
 
 ---
 
-## 5. 数据流
-
-### 5.1 图像生成流程
-
-```mermaid
-sequenceDiagram
-    participant User as 用户
-    participant Web as 前端
-    participant API as TSN API
-    participant Router as Capability Router
-    participant ZImage as Z-Image API
-
-    User->>Web: 输入 Prompt
-    Web->>API: POST /v1/imagegen/jobs
-    API->>Router: get_capability_router("imagegen")
-    Router->>ZImage: POST /v1/images/generate
-    ZImage-->>Router: task_id
-    Router-->>API: task_id
-    API-->>Web: job_id
-    
-    loop 轮询状态
-        Web->>API: GET /v1/imagegen/jobs/{job_id}
-        API->>ZImage: GET /v1/tasks/{task_id}
-        ZImage-->>API: status, image_url
-        API-->>Web: status, image_url
-    end
-    
-    Web->>User: 显示生成的图片
-```
-
-### 5.2 TTS 生成流程
-
-```mermaid
-sequenceDiagram
-    participant User as 用户
-    participant Web as 前端
-    participant API as TSN API
-    participant Celery as Celery Worker
-    participant TTS as GLM-TTS Engine
-
-    User->>Web: 输入文本
-    Web->>API: POST /v1/tts/jobs
-    API->>Celery: 提交任务
-    Celery->>TTS: 模型推理
-    TTS-->>Celery: WAV 文件
-    Celery->>S3: 上传音频
-    Celery-->>API: 任务完成
-    
-    Web->>API: GET /v1/tts/jobs/{job_id}
-    API-->>Web: status, audio_url
-    Web->>User: 播放音频
-```
-
----
-
-## 6. 目录结构
+## 5. 目录结构
 
 ```
 Turbo-Super-Novel/
 ├── apps/
-│   ├── api/          # FastAPI 后端服务
-│   ├── web/          # Vite + React 前端
+│   ├── api/          # FastAPI 后端
+│   ├── web/          # React 前端
 │   └── worker/       # Celery Worker
 ├── libs/
 │   ├── ai/           # AI 模型封装
-│   │   ├── tts/      # TTS 引擎
-│   │   ├── imagegen/ # 图像生成（预留）
-│   │   └── videogen/ # 视频生成引擎
-│   ├── business/     # 业务逻辑
-│   │   └── novel/    # Novel 项目管理
-│   └── foundation/   # 基础设施
+│   │   ├── tts/      # GLM-TTS
+│   │   ├── videogen/ # TurboDiffusion
+│   │   ├── ops/      # CUDA 扩展
+│   │   └── dfloat11/ # DF11 量化
+│   └── foundation/
 │       ├── capabilities/  # 能力路由
 │       ├── core/          # 通用工具
 │       └── db/            # 数据库模型
+├── scripts/
+│   ├── setup/        # 模型下载
+│   ├── test/         # Smoke 测试
+│   └── tools/        # 工具脚本
 ├── docs/             # 文档
-├── infra/            # 基础设施配置
-├── scripts/          # 启动/管理脚本
-├── third_party/      # 第三方依赖
-└── .env              # 环境配置
+└── infra/            # Docker Compose
 ```
 
 ---
 
-## 7. 环境配置
-
-关键环境变量：
+## 6. 环境配置
 
 ```bash
 # Worker 配置
 WORKER_CAPABILITIES=tts,videogen
-CAP_GPU_MODE=ondemand  # ondemand | resident
+CAP_GPU_MODE=resident  # resident | ondemand
 
-# 服务连接
+# 基础设施
 CELERY_BROKER_URL=redis://localhost:6379/0
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/tsn
 S3_ENDPOINT=http://localhost:9000
@@ -260,22 +184,24 @@ S3_ENDPOINT=http://localhost:9000
 CAP_TTS_PROVIDER=local
 CAP_IMAGEGEN_PROVIDER=remote
 CAP_IMAGEGEN_REMOTE_URL=http://192.168.8.24:8000
-CAP_IMAGEGEN_REMOTE_API_KEY=test_123456
+CAP_IMAGEGEN_REMOTE_API_KEY=xxx
 CAP_VIDEOGEN_PROVIDER=local
 CAP_LLM_PROVIDER=remote
+CAP_LLM_REMOTE_URL=https://api.deepseek.com/v1
+CAP_LLM_REMOTE_API_KEY=sk-xxx
 ```
 
 ---
 
-## 8. 扩展性
+## 7. 扩展性
 
-系统设计支持以下扩展：
-
-1. **新增 Capability**：在 `libs/foundation/capabilities` 中添加配置和 Provider
-2. **切换 Provider**：通过环境变量切换 local/remote
-3. **多机部署**：API 和 Worker 可分离部署，通过 Redis 通信
-4. **存储后端**：支持本地存储或 S3/MinIO
+| 扩展方式 | 说明 |
+|----------|------|
+| **新增 Capability** | 在 `libs/foundation/capabilities` 添加配置 |
+| **切换 Provider** | 环境变量 `CAP_*_PROVIDER=local\|remote` |
+| **多机部署** | API 和 Worker 分离，Redis 通信 |
+| **新增 Studio** | 前端添加页面 + 路由 |
 
 ---
 
-*最后更新：2025-12-30*
+*最后更新：2026-01-02*

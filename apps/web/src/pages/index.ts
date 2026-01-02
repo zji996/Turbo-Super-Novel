@@ -3,4 +3,5 @@ export { ComingSoon } from './ComingSoon';
 export { Dashboard } from './Dashboard';
 export { TTSStudio } from './TTSStudio';
 export { ImageStudio } from './ImageStudio';
+export { LLMStudio } from './LLMStudio';
 export { ProjectList } from './ProjectList';

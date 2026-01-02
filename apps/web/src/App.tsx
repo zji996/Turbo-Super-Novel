@@ -5,6 +5,7 @@ import { ComingSoon } from './pages/ComingSoon'
 import { Dashboard } from './pages/Dashboard'
 import { TTSStudio } from './pages/TTSStudio'
 import { ImageStudio } from './pages/ImageStudio'
+import { LLMStudio } from './pages/LLMStudio'
 import { ProjectList } from './pages/ProjectList'
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
                 <Route path="/tools/tts" element={<TTSStudio />} />
                 <Route path="/tools/imagegen" element={<ImageStudio />} />
                 <Route path="/tools/i2v" element={<I2VStudio />} />
+                <Route path="/tools/llm" element={<LLMStudio />} />
                 <Route path="/projects" element={<ProjectList />} />
                 <Route path="/projects/new" element={<ComingSoon title="New Project" />} />
                 <Route path="/projects/:id" element={<ComingSoon title="Project Detail" />} />

@@ -21,6 +21,10 @@ class CreateImageGenJobRequest(BaseModel):
     """Request body for creating an image generation job."""
 
     prompt: str = Field(..., min_length=1, max_length=8000, description="Image prompt")
+    enhance_prompt: bool = Field(
+        default=False,
+        description="Use LLM to enhance the prompt before submission",
+    )
     width: int | None = Field(default=None, ge=256, le=2048, description="Image width")
     height: int | None = Field(
         default=None, ge=256, le=2048, description="Image height"
@@ -53,6 +57,23 @@ def _get_remote_provider():
     return cap
 
 
+async def _maybe_enhance_prompt(prompt: str, enabled: bool) -> str:
+    if not enabled:
+        return prompt
+    try:
+        llm = get_capability_router("llm")
+        if not hasattr(llm, "enhance_prompt"):
+            raise RuntimeError("LLM provider does not support enhance_prompt")
+        return await llm.enhance_prompt(prompt, context="image_generation")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"LLM prompt enhancement unavailable: {exc}",
+        ) from exc
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
@@ -81,8 +102,10 @@ async def create_imagegen_job(request: CreateImageGenJobRequest) -> dict:
     if request.negative_prompt is not None:
         kwargs["negative_prompt"] = request.negative_prompt
 
+    prompt = await _maybe_enhance_prompt(request.prompt, request.enhance_prompt)
+
     try:
-        return await cap.submit_imagegen_job(prompt=request.prompt, **kwargs)
+        return await cap.submit_imagegen_job(prompt=prompt, **kwargs)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=int(exc.response.status_code),

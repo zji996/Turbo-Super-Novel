@@ -4,6 +4,7 @@ import { createTTSJobWithProfile, getTTSJobStatus } from '../services/tts';
 export interface TTSJobRequest {
     text: string;
     profile_id: string;
+    enhance_prompt?: boolean;
 }
 
 export interface TTSJobState {

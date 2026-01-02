@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { CapabilityStatusIndicator } from './CapabilityStatusIndicator';
 
 interface NavItem {
     path: string;
@@ -12,6 +13,7 @@ const navItems: NavItem[] = [
     { path: '/tools/tts', label: 'TTS 语音', icon: '🗣️' },
     { path: '/tools/imagegen', label: '图像生成', icon: '🖼️' },
     { path: '/tools/i2v', label: '视频生成', icon: '🎬' },
+    { path: '/tools/llm', label: 'LLM Studio', icon: '💬' },
     { path: '/projects', label: '项目', icon: '📁' },
 ];
 
@@ -68,6 +70,7 @@ export function Sidebar() {
                 <div className="text-xs text-[var(--color-text-muted)]">
                     <p>MVP v0.1.0</p>
                 </div>
+                <CapabilityStatusIndicator />
             </div>
         </aside>
     );

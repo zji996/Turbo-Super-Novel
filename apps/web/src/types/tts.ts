@@ -38,4 +38,5 @@ export interface CreateSpeakerProfileRequest {
 export interface CreateTTSJobWithProfileRequest {
     text: string;
     profile_id: string;
+    enhance_prompt?: boolean;
 }

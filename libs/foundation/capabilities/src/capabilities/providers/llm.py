@@ -44,6 +44,49 @@ class LLMProvider:
             resp.raise_for_status()
             return resp.json()
 
+    @staticmethod
+    def _first_message_content(payload: dict[str, Any]) -> str | None:
+        try:
+            choices = payload.get("choices") or []
+            if not choices:
+                return None
+            message = choices[0].get("message") or {}
+            content = message.get("content")
+            if content is None:
+                return None
+            text = str(content).strip()
+            return text or None
+        except Exception:
+            return None
+
+    async def enhance_prompt(self, prompt: str, context: str) -> str:
+        """Enhance user prompt/text with context-specific guidance."""
+        system_prompts = {
+            "image_generation": (
+                "你是图像提示词优化助手。将用户中文/英文描述改写为更适合图像生成的提示词："
+                "更具体、包含主体/场景/光照/镜头/风格等要素；保持简洁；仅输出优化后的提示词。"
+            ),
+            "video_generation": (
+                "你是视频提示词优化助手。将用户描述改写为更适合图生视频(I2V)的提示词："
+                "补充动作、镜头运动、节奏、风格；避免冗长；仅输出优化后的提示词。"
+            ),
+            "tts_text": (
+                "你是中文朗读文本优化助手。对用户输入做适合 TTS 的轻量优化："
+                "必要时添加合理的标点/分句以提升停顿与韵律；不改变原意；仅输出优化后的文本。"
+            ),
+        }
+
+        result = await self.chat(
+            [
+                {"role": "system", "content": system_prompts.get(context, "")},
+                {"role": "user", "content": f"请优化以下内容：\n{prompt}"},
+            ],
+            temperature=0.3,
+            max_tokens=1024,
+        )
+        content = self._first_message_content(result)
+        return content or prompt
+
     async def generate_script(self, user_prompt: str) -> str:
         system = (
             "你是专业的视频脚本编剧。根据用户描述，生成详细的视频脚本。"
@@ -70,4 +113,3 @@ class LLMProvider:
             ]
         )
         return str(result["choices"][0]["message"]["content"])
-

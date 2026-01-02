@@ -38,6 +38,7 @@ export async function createImageGenJob(
     params: ImageGenParams
 ): Promise<ImageGenJob> {
     const body: Record<string, unknown> = { prompt: params.prompt };
+    if (params.enhance_prompt !== undefined) body.enhance_prompt = params.enhance_prompt;
     if (params.width !== undefined) body.width = params.width;
     if (params.height !== undefined) body.height = params.height;
     if (params.num_inference_steps !== undefined)

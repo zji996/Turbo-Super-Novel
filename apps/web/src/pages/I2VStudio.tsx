@@ -4,6 +4,7 @@ import { ParamsPanel } from '../components/ParamsPanel';
 import { JobPanel } from '../components/JobPanel';
 import { ResultPanel } from '../components/ResultPanel';
 import { useJobStorage, useJobPolling } from '../hooks';
+import { useCapabilityHealth } from '../hooks/useCapabilityHealth';
 import { createI2VJob } from '../services/videogen';
 import type { I2VJob, I2VParams } from '../types';
 import { DEFAULT_I2V_PARAMS } from '../types';
@@ -13,6 +14,7 @@ export function I2VStudio() {
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [prompt, setPrompt] = useState('');
+    const [enhancePrompt, setEnhancePrompt] = useState(false);
     const [params, setParams] = useState<I2VParams>(DEFAULT_I2V_PARAMS);
 
     // UI state
@@ -23,10 +25,16 @@ export function I2VStudio() {
     // Job storage
     const { jobs, addJob, updateJob, removeJob } = useJobStorage();
 
+    const { reportFailure, reportSuccess } = useCapabilityHealth();
+
     // Polling
     useJobPolling(jobs, updateJob, {
         onComplete: (job) => {
-            console.log('Job completed:', job.job_id, job.status);
+            if (job.status === 'SUCCESS') {
+                reportSuccess('videogen');
+            } else if (job.status === 'FAILURE') {
+                reportFailure('videogen', job.error || 'Video generation failed');
+            }
         },
     });
 
@@ -59,7 +67,7 @@ export function I2VStudio() {
         setError(null);
 
         try {
-            const response = await createI2VJob(imageFile, prompt.trim(), params);
+            const response = await createI2VJob(imageFile, prompt.trim(), params, enhancePrompt);
 
             // Create local job record
             const newJob: I2VJob = {
@@ -83,11 +91,13 @@ export function I2VStudio() {
             setPrompt('');
         } catch (err) {
             console.error('Failed to create job:', err);
-            setError(err instanceof Error ? err.message : 'Failed to create job');
+            const message = err instanceof Error ? err.message : 'Failed to create job';
+            setError(message);
+            reportFailure('videogen', message);
         } finally {
             setIsSubmitting(false);
         }
-    }, [imageFile, prompt, params, imagePreview, addJob]);
+    }, [imageFile, prompt, params, enhancePrompt, imagePreview, addJob, reportFailure]);
 
     const handleRetry = useCallback((prevParams: I2VParams) => {
         // Set new random seed but keep other params
@@ -120,6 +130,8 @@ export function I2VStudio() {
                             prompt={prompt}
                             onImageChange={handleImageChange}
                             onPromptChange={handlePromptChange}
+                            enhancePrompt={enhancePrompt}
+                            onEnhancePromptChange={setEnhancePrompt}
                             disabled={isSubmitting}
                         />
                     </div>

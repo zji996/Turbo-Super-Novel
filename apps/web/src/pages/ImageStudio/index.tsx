@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useImageGenJob } from '../../hooks/useImageGenJob';
+import { useCapabilityHealth } from '../../hooks/useCapabilityHealth';
 import { optimizePrompt } from '../../services/llm';
 import { getStatusMessage } from '../../services/imagegen';
 import type { ImageGenParams } from '../../types';
@@ -28,16 +29,21 @@ const SIZE_PRESETS: SizePreset[] = [
 export function ImageStudio() {
     const [prompt, setPrompt] = useState('');
     const [isOptimizing, setIsOptimizing] = useState(false);
+    const [enhancePrompt, setEnhancePrompt] = useState(false);
     const [params, setParams] = useState<ImageGenParamsState>(DEFAULT_PARAMS);
     const [showAdvanced, setShowAdvanced] = useState(false);
+
+    const { reportFailure, reportSuccess } = useCapabilityHealth();
 
     const { job, isSubmitting, isPolling, submit, cancel, clear, status, progress, error, imageUrl } =
         useImageGenJob({
             onSuccess: (job) => {
                 console.log('Image generation completed:', job);
+                reportSuccess('imagegen');
             },
             onError: (err) => {
                 console.error('Image generation failed:', err);
+                reportFailure('imagegen', err.message);
             },
         });
 
@@ -59,8 +65,8 @@ export function ImageStudio() {
 
     const handleSubmit = useCallback(async () => {
         if (!prompt.trim() || isRunning) return;
-        await submit(prompt, params);
-    }, [prompt, params, isRunning, submit]);
+        await submit(prompt, { ...params, enhance_prompt: enhancePrompt });
+    }, [prompt, params, enhancePrompt, isRunning, submit]);
 
     const handleCancel = useCallback(async () => {
         await cancel();
@@ -92,8 +98,10 @@ export function ImageStudio() {
                         prompt={prompt}
                         isRunning={isRunning}
                         isOptimizing={isOptimizing}
+                        enhancePrompt={enhancePrompt}
                         onChange={setPrompt}
                         onOptimize={handleOptimize}
+                        onEnhancePromptChange={setEnhancePrompt}
                     />
 
                     <ParamsPanel

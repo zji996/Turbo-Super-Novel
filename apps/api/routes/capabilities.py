@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
+import httpx
 from fastapi import APIRouter
 
 from capabilities import get_capability_router
+from capabilities.config import load_capability_config
 
 router = APIRouter(prefix="/v1/capabilities", tags=["capabilities"])
 
@@ -173,3 +177,98 @@ async def get_current_imagegen_model(provider: str | None = None) -> dict:
         }
     except Exception as exc:
         return {"error": str(exc), "model": None}
+
+
+# ============================================================================
+# Status Endpoints
+# ============================================================================
+
+
+def _auth_headers(api_key: str | None) -> dict[str, str]:
+    if not api_key:
+        return {}
+    return {"Authorization": f"Bearer {api_key}", "X-Auth-Key": api_key}
+
+
+async def _http_health_check(base_url: str, api_key: str | None = None) -> bool:
+    """Best-effort health check for remote endpoints."""
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return False
+
+    parsed = urlparse(base)
+    base_path = (parsed.path or "").rstrip("/")
+    has_v1_suffix = base_path.endswith("/v1")
+
+    candidates = ["health", "models"]
+    if not has_v1_suffix:
+        candidates.extend(["v1/health", "v1/models"])
+
+    headers = _auth_headers(api_key)
+
+    async with httpx.AsyncClient(timeout=5) as client:
+        for candidate in candidates:
+            url = f"{base}/{candidate.lstrip('/')}"
+            try:
+                resp = await client.get(url, headers=headers)
+            except Exception:
+                continue
+            if 200 <= resp.status_code < 300:
+                return True
+
+    return False
+
+
+def _celery_worker_available(queue: str) -> bool:
+    """Check whether any worker is listening on the given queue."""
+    try:
+        from celery_app import celery_app
+
+        inspect = celery_app.control.inspect(timeout=0.5)
+        active_queues = inspect.active_queues() or {}
+        for _worker, queues in active_queues.items():
+            if any(q.get("name") == queue for q in queues):
+                return True
+    except Exception:
+        return False
+    return False
+
+
+async def _probe_capability(name: str) -> dict:
+    config = load_capability_config()
+    endpoint = getattr(config, name, None)
+    if endpoint is None:
+        return {"provider": None, "status": "unavailable", "detail": "unknown capability"}
+
+    if name == "llm" and endpoint.provider != "remote":
+        return {
+            "provider": endpoint.provider,
+            "status": "unavailable",
+            "detail": "llm only supports provider=remote",
+        }
+
+    if endpoint.provider == "remote":
+        if not endpoint.remote_url:
+            return {
+                "provider": "remote",
+                "status": "unavailable",
+                "detail": "missing remote_url",
+            }
+        ok = await _http_health_check(endpoint.remote_url, endpoint.remote_api_key)
+        return {"provider": "remote", "status": "available" if ok else "unavailable"}
+
+    ok = _celery_worker_available(f"cap.{name}")
+    return {"provider": "local", "status": "available" if ok else "unavailable"}
+
+
+@router.get("/status")
+async def get_capabilities_status() -> dict:
+    """Return availability status for all capabilities."""
+    return {
+        "capabilities": {
+            "tts": await _probe_capability("tts"),
+            "imagegen": await _probe_capability("imagegen"),
+            "videogen": await _probe_capability("videogen"),
+            "llm": await _probe_capability("llm"),
+        }
+    }

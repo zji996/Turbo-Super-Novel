@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTTSJob } from '../hooks/useTTSJob';
 import { Modal, StatusBadge } from '../components/ui';
 import type { SpeakerProfile } from '../types';
+import { useCapabilityHealth } from '../hooks/useCapabilityHealth';
 import {
     createSpeakerProfile,
     deleteSpeakerProfile,
@@ -9,13 +10,19 @@ import {
 } from '../services/tts';
 
 export function TTSStudio() {
-    const { state: jobState, submit, reset } = useTTSJob(2000);
+    const { reportFailure, reportSuccess } = useCapabilityHealth();
+    const { state: jobState, submit, reset } = useTTSJob(
+        2000,
+        () => reportSuccess('tts'),
+        (err) => reportFailure('tts', err.message)
+    );
 
     const [profiles, setProfiles] = useState<SpeakerProfile[]>([]);
     const [selectedProfile, setSelectedProfile] = useState<SpeakerProfile | null>(null);
     const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
 
     const [text, setText] = useState('');
+    const [enhancePrompt, setEnhancePrompt] = useState(false);
 
     const [showUpload, setShowUpload] = useState(false);
     const [uploadName, setUploadName] = useState('');
@@ -46,9 +53,10 @@ export function TTSStudio() {
         await submit({
             text: text.trim(),
             profile_id: selectedProfile.id,
+            enhance_prompt: enhancePrompt,
         });
         setText('');
-    }, [selectedProfile, text, submit]);
+    }, [selectedProfile, text, enhancePrompt, submit]);
 
     const handleUpload = useCallback(async () => {
         if (!uploadFile || !uploadName || !uploadPromptText) return;
@@ -205,6 +213,15 @@ export function TTSStudio() {
                         <div className="text-xs text-[var(--color-text-muted)] mt-1 text-right">
                             {text.length} / 5000
                         </div>
+                        <label className="mt-3 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                            <input
+                                type="checkbox"
+                                checked={enhancePrompt}
+                                onChange={(e) => setEnhancePrompt(e.target.checked)}
+                                disabled={jobState.isSubmitting}
+                            />
+                            提交时 AI 优化文本
+                        </label>
                     </div>
 
                     <button
@@ -342,4 +359,3 @@ export function TTSStudio() {
         </div>
     );
 }
-

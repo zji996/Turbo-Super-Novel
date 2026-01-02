@@ -8,11 +8,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 export async function createI2VJob(
     image: File,
     prompt: string,
-    params: I2VParams
+    params: I2VParams,
+    enhancePrompt: boolean = false
 ): Promise<CreateJobResponse> {
     const formData = new FormData();
     formData.append('image', image);
     formData.append('prompt', prompt);
+    formData.append('enhance_prompt', String(enhancePrompt));
     formData.append('seed', String(params.seed));
     formData.append('num_steps', String(params.num_steps));
     formData.append('quantized', String(params.quantized));

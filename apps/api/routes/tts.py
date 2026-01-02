@@ -28,6 +28,10 @@ def _normalize_provider(provider: str) -> str:
 
 class CreateTTSJobRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000)
+    enhance_prompt: bool = Field(
+        default=False,
+        description="Use LLM to enhance/segment the text before TTS",
+    )
     provider: str = Field(default="glm_tts")
     prompt_text: str | None = None
     prompt_audio_id: str | None = None
@@ -62,6 +66,10 @@ class SpeakerProfileResponse(BaseModel):
 class CreateJobWithProfileRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000)
     profile_id: str = Field(...)
+    enhance_prompt: bool = Field(
+        default=False,
+        description="Use LLM to enhance/segment the text before TTS",
+    )
 
 
 def _speaker_profile_response(profile: SpeakerProfile) -> SpeakerProfileResponse:
@@ -96,6 +104,23 @@ def _parse_config_json(value: str | None) -> dict:
     if not isinstance(parsed, dict):
         raise HTTPException(status_code=422, detail="config must be a JSON object")
     return parsed
+
+
+async def _maybe_enhance_tts_text(text: str, enabled: bool) -> str:
+    if not enabled:
+        return text
+    try:
+        llm = get_capability_router("llm")
+        if not hasattr(llm, "enhance_prompt"):
+            raise RuntimeError("LLM provider does not support enhance_prompt")
+        return await llm.enhance_prompt(text, context="tts_text")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"LLM text enhancement unavailable: {exc}",
+        ) from exc
 
 
 @router.get("/providers")
@@ -313,11 +338,12 @@ async def delete_speaker_profile(profile_id: str) -> dict:
 async def create_tts_job(request: CreateTTSJobRequest) -> dict:
     cap = get_capability_router("tts")
     provider = _normalize_provider(request.provider)
+    text_final = await _maybe_enhance_tts_text(request.text, request.enhance_prompt)
 
     if getattr(cap, "provider_type", "local") == "remote":
         try:
             return await cap.submit_tts_job(
-                text=request.text,
+                text=text_final,
                 provider=provider,
                 prompt_text=request.prompt_text,
                 prompt_audio_id=request.prompt_audio_id,
@@ -368,7 +394,7 @@ async def create_tts_job(request: CreateTTSJobRequest) -> dict:
             TTSJob(
                 id=job_uuid,
                 status="CREATED",
-                text=request.text,
+                text=text_final,
                 provider=provider,
                 prompt_text=request.prompt_text,
                 prompt_audio_bucket=prompt_audio_bucket,
@@ -383,7 +409,7 @@ async def create_tts_job(request: CreateTTSJobRequest) -> dict:
     try:
         await cap.submit_tts_job(
             job_id=job_id,
-            text=request.text,
+            text=text_final,
             provider=provider,
             output_bucket=bucket,
             output_key=output_key,
@@ -535,9 +561,13 @@ async def create_tts_job_with_prompt(
 @router.post("/jobs/with-profile")
 async def create_tts_job_with_profile(request: CreateJobWithProfileRequest) -> dict:
     cap = get_capability_router("tts")
+    text_final = await _maybe_enhance_tts_text(request.text, request.enhance_prompt)
     if getattr(cap, "provider_type", "local") == "remote" and hasattr(cap, "request_json"):
         try:
-            return await cap.request_json("POST", "/v1/tts/jobs/with-profile", json=request.model_dump())
+            payload = request.model_dump()
+            payload["text"] = text_final
+            payload.pop("enhance_prompt", None)
+            return await cap.request_json("POST", "/v1/tts/jobs/with-profile", json=payload)
         except httpx.HTTPStatusError as exc:
             raise HTTPException(
                 status_code=int(exc.response.status_code),
@@ -585,7 +615,7 @@ async def create_tts_job_with_profile(request: CreateJobWithProfileRequest) -> d
             TTSJob(
                 id=job_uuid,
                 status="CREATED",
-                text=request.text,
+                text=text_final,
                 provider=provider,
                 speaker_profile_id=profile_uuid,
                 prompt_text=prompt_text,
@@ -601,7 +631,7 @@ async def create_tts_job_with_profile(request: CreateJobWithProfileRequest) -> d
     try:
         await cap.submit_tts_job(
             job_id=job_id,
-            text=request.text,
+            text=text_final,
             provider=provider,
             output_bucket=output_bucket,
             output_key=output_key,

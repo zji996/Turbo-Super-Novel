@@ -12,6 +12,7 @@ from celery.result import AsyncResult
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from capabilities import get_capability_router
 from celery_app import celery_app
 from db import (
     VideoGenJob,
@@ -106,6 +107,7 @@ def turbodiffusion_models() -> dict:
 @router.post("/wan22-i2v/jobs", response_model=CreateI2VJobResponse)
 async def create_wan22_i2v_job(
     prompt: str = Form(..., min_length=1, max_length=8000),
+    enhance_prompt: bool = Form(False),
     image: UploadFile = File(...),
     seed: int = Form(0),
     num_steps: int = Form(4, ge=1, le=100),
@@ -136,6 +138,21 @@ async def create_wan22_i2v_job(
                 ),
             )
 
+    prompt_final = str(prompt).strip()
+    if not prompt_final:
+        raise HTTPException(status_code=422, detail="prompt cannot be empty")
+    if enhance_prompt:
+        try:
+            llm = get_capability_router("llm")
+            if not hasattr(llm, "enhance_prompt"):
+                raise RuntimeError("LLM provider does not support enhance_prompt")
+            prompt_final = await llm.enhance_prompt(prompt_final, context="video_generation")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"LLM prompt enhancement unavailable: {exc}",
+            ) from exc
+
     job_uuid = uuid4()
     job_id = str(job_uuid)
     bucket = s3_bucket_name()
@@ -159,7 +176,7 @@ async def create_wan22_i2v_job(
         VideoGenJob(
             id=job_uuid,
             status="CREATED",
-            prompt=prompt,
+            prompt=prompt_final,
             seed=int(seed),
             num_steps=int(num_steps),
             quantized=bool(quantized),
@@ -186,7 +203,7 @@ async def create_wan22_i2v_job(
                 "input_key": input_key,
                 "output_bucket": bucket,
                 "output_key": output_key,
-                "prompt": prompt,
+                "prompt": prompt_final,
                 "seed": int(seed),
                 "num_steps": int(num_steps),
                 "quantized": bool(quantized),

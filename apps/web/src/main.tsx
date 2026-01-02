@@ -3,11 +3,14 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
+import { CapabilityHealthProvider } from './hooks/CapabilityHealthProvider'
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>
         <BrowserRouter>
-            <App />
+            <CapabilityHealthProvider>
+                <App />
+            </CapabilityHealthProvider>
         </BrowserRouter>
     </StrictMode>,
 )

@@ -19,6 +19,7 @@ export interface ImageGenJob {
 
 export interface ImageGenParams {
     prompt: string;
+    enhance_prompt?: boolean;
     width?: number;
     height?: number;
     num_inference_steps?: number;

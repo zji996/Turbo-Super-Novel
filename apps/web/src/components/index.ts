@@ -4,3 +4,4 @@ export { InputPanel } from './InputPanel';
 export { ParamsPanel } from './ParamsPanel';
 export { JobPanel } from './JobPanel';
 export { ResultPanel } from './ResultPanel';
+export { CapabilityStatusIndicator } from './CapabilityStatusIndicator';
