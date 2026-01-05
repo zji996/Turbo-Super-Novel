@@ -123,6 +123,51 @@ async def _maybe_enhance_tts_text(text: str, enabled: bool) -> str:
         ) from exc
 
 
+async def _submit_and_track_job(
+    cap,
+    job_uuid: uuid.UUID,
+    text: str,
+    provider: str,
+    output_bucket: str,
+    output_key: str,
+    prompt_text: str,
+    prompt_audio_bucket: str | None,
+    prompt_audio_key: str | None,
+    sample_rate: int,
+    config: dict,
+) -> dict:
+    """Submit a TTS job via capability router and update DB status."""
+    try:
+        await cap.submit_tts_job(
+            job_id=str(job_uuid),
+            text=text,
+            provider=provider,
+            output_bucket=output_bucket,
+            output_key=output_key,
+            prompt_text=prompt_text,
+            prompt_audio_bucket=prompt_audio_bucket,
+            prompt_audio_key=prompt_audio_key,
+            sample_rate=int(sample_rate),
+            **(config or {}),
+        )
+    except Exception as exc:
+        ensure_schema()
+        with session_scope() as session:
+            row = session.get(TTSJob, job_uuid)
+            if row is not None:
+                row.status = "SUBMIT_FAILED"
+                row.error = str(exc)
+        raise HTTPException(status_code=500, detail=f"Failed to submit task: {exc}") from exc
+
+    ensure_schema()
+    with session_scope() as session:
+        row = session.get(TTSJob, job_uuid)
+        if row is not None:
+            row.status = "SUBMITTED"
+
+    return {"job_id": str(job_uuid), "status": "submitted"}
+
+
 @router.get("/providers")
 async def list_tts_providers() -> dict:
     cap = get_capability_router("tts")
@@ -406,35 +451,21 @@ async def create_tts_job(request: CreateTTSJobRequest) -> dict:
             )
         )
 
-    try:
-        await cap.submit_tts_job(
-            job_id=job_id,
-            text=text_final,
-            provider=provider,
-            output_bucket=bucket,
-            output_key=output_key,
-            prompt_text=request.prompt_text,
-            prompt_audio_bucket=prompt_audio_bucket,
-            prompt_audio_key=prompt_audio_key,
-            sample_rate=int(request.sample_rate),
-            **(request.config or {}),
-        )
-    except Exception as exc:
-        ensure_schema()
-        with session_scope() as session:
-            row = session.get(TTSJob, job_uuid)
-            if row is not None:
-                row.status = "SUBMIT_FAILED"
-                row.error = str(exc)
-        raise HTTPException(status_code=500, detail=f"Failed to submit task: {exc}") from exc
-
-    ensure_schema()
-    with session_scope() as session:
-        row = session.get(TTSJob, job_uuid)
-        if row is not None:
-            row.status = "SUBMITTED"
-
-    return {"job_id": job_id, "status": "submitted", "output": {"bucket": bucket, "key": output_key}}
+    response = await _submit_and_track_job(
+        cap=cap,
+        job_uuid=job_uuid,
+        text=text_final,
+        provider=provider,
+        output_bucket=bucket,
+        output_key=output_key,
+        prompt_text=str(request.prompt_text),
+        prompt_audio_bucket=prompt_audio_bucket,
+        prompt_audio_key=prompt_audio_key,
+        sample_rate=int(request.sample_rate),
+        config=dict(request.config or {}),
+    )
+    response["output"] = {"bucket": bucket, "key": output_key}
+    return response
 
 
 @router.post("/jobs/with-prompt")
@@ -528,34 +559,19 @@ async def create_tts_job_with_prompt(
             )
         )
 
-    try:
-        await cap.submit_tts_job(
-            job_id=job_id,
-            text=text,
-            provider=provider_norm,
-            output_bucket=bucket,
-            output_key=output_key,
-            prompt_text=prompt_text,
-            prompt_audio_bucket=bucket,
-            prompt_audio_key=prompt_key,
-            sample_rate=int(sample_rate),
-        )
-    except Exception as exc:
-        ensure_schema()
-        with session_scope() as session:
-            row = session.get(TTSJob, job_uuid)
-            if row is not None:
-                row.status = "SUBMIT_FAILED"
-                row.error = str(exc)
-        raise HTTPException(status_code=500, detail=f"Failed to submit task: {exc}") from exc
-
-    ensure_schema()
-    with session_scope() as session:
-        row = session.get(TTSJob, job_uuid)
-        if row is not None:
-            row.status = "SUBMITTED"
-
-    return {"job_id": job_id, "status": "submitted"}
+    return await _submit_and_track_job(
+        cap=cap,
+        job_uuid=job_uuid,
+        text=str(text),
+        provider=provider_norm,
+        output_bucket=bucket,
+        output_key=output_key,
+        prompt_text=str(prompt_text),
+        prompt_audio_bucket=bucket,
+        prompt_audio_key=prompt_key,
+        sample_rate=int(sample_rate),
+        config={},
+    )
 
 
 @router.post("/jobs/with-profile")
@@ -628,35 +644,19 @@ async def create_tts_job_with_profile(request: CreateJobWithProfileRequest) -> d
             )
         )
 
-    try:
-        await cap.submit_tts_job(
-            job_id=job_id,
-            text=text_final,
-            provider=provider,
-            output_bucket=output_bucket,
-            output_key=output_key,
-            prompt_text=prompt_text,
-            prompt_audio_bucket=prompt_audio_bucket,
-            prompt_audio_key=prompt_audio_key,
-            sample_rate=sample_rate,
-            **config,
-        )
-    except Exception as exc:
-        ensure_schema()
-        with session_scope() as session:
-            row = session.get(TTSJob, job_uuid)
-            if row is not None:
-                row.status = "SUBMIT_FAILED"
-                row.error = str(exc)
-        raise HTTPException(status_code=500, detail=f"Failed to submit task: {exc}") from exc
-
-    ensure_schema()
-    with session_scope() as session:
-        row = session.get(TTSJob, job_uuid)
-        if row is not None:
-            row.status = "SUBMITTED"
-
-    return {"job_id": job_id, "status": "submitted"}
+    return await _submit_and_track_job(
+        cap=cap,
+        job_uuid=job_uuid,
+        text=text_final,
+        provider=provider,
+        output_bucket=output_bucket,
+        output_key=output_key,
+        prompt_text=prompt_text,
+        prompt_audio_bucket=prompt_audio_bucket,
+        prompt_audio_key=prompt_audio_key,
+        sample_rate=sample_rate,
+        config=config,
+    )
 
 
 @router.get("/jobs/{job_id}", response_model=TTSJobResponse)

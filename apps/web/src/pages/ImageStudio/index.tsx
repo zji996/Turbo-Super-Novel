@@ -1,15 +1,19 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useImageGenJob } from '../../hooks/useImageGenJob';
 import { useCapabilityHealth } from '../../hooks/useCapabilityHealth';
-import { optimizePrompt } from '../../services/llm';
+import { useJobHistory } from '../../hooks/useJobHistory';
 import { getStatusMessage } from '../../services/imagegen';
 import type { ImageGenParams } from '../../types';
 import { ParamsPanel } from './ParamsPanel';
 import { PromptInput } from './PromptInput';
 import { ResultDisplay } from './ResultDisplay';
+import { JobHistoryPanel } from '../../components/JobHistoryPanel';
+import { StudioHeader, SubmitButton } from '../../components';
 import type { SizePreset } from './types';
 
 type ImageGenParamsState = Omit<ImageGenParams, 'prompt'>;
+
+const HISTORY_KEY = 'tsn_imagegen_history';
 
 const DEFAULT_PARAMS: ImageGenParamsState = {
     width: 1024,
@@ -28,45 +32,51 @@ const SIZE_PRESETS: SizePreset[] = [
 
 export function ImageStudio() {
     const [prompt, setPrompt] = useState('');
-    const [isOptimizing, setIsOptimizing] = useState(false);
-    const [enhancePrompt, setEnhancePrompt] = useState(false);
     const [params, setParams] = useState<ImageGenParamsState>(DEFAULT_PARAMS);
     const [showAdvanced, setShowAdvanced] = useState(false);
 
+    // Keep a ref to the current prompt for use in callback closures
+    const promptRef = useRef(prompt);
+    promptRef.current = prompt;
+
     const { reportFailure, reportSuccess } = useCapabilityHealth();
+    const { history, addItem, removeItem, clearHistory } = useJobHistory(HISTORY_KEY);
 
     const { job, isSubmitting, isPolling, submit, cancel, clear, status, progress, error, imageUrl } =
         useImageGenJob({
             onSuccess: (job) => {
                 console.log('Image generation completed:', job);
                 reportSuccess('imagegen');
+                addItem({
+                    jobId: job.job_id,
+                    createdAt: Date.now(),
+                    status: 'success',
+                    inputs: { prompt: promptRef.current },
+                    outputUrl: job.image_url,
+                });
             },
-            onError: (err) => {
+            onError: (err, job) => {
                 console.error('Image generation failed:', err);
                 reportFailure('imagegen', err.message);
+                if (job) {
+                    addItem({
+                        jobId: job.job_id,
+                        createdAt: Date.now(),
+                        status: 'failed',
+                        inputs: { prompt: promptRef.current },
+                        error: err.message,
+                    });
+                }
             },
         });
 
     const isRunning = isSubmitting || isPolling;
     const statusMessage = useMemo(() => (job ? getStatusMessage(job) : null), [job]);
 
-    const handleOptimize = useCallback(async () => {
-        if (!prompt.trim()) return;
-        setIsOptimizing(true);
-        try {
-            const optimized = await optimizePrompt(prompt);
-            setPrompt(optimized);
-        } catch (e) {
-            console.error('Prompt optimization failed:', e);
-        } finally {
-            setIsOptimizing(false);
-        }
-    }, [prompt]);
-
     const handleSubmit = useCallback(async () => {
         if (!prompt.trim() || isRunning) return;
-        await submit(prompt, { ...params, enhance_prompt: enhancePrompt });
-    }, [prompt, params, enhancePrompt, isRunning, submit]);
+        await submit(prompt, params);
+    }, [prompt, params, isRunning, submit]);
 
     const handleCancel = useCallback(async () => {
         await cancel();
@@ -85,23 +95,25 @@ export function ImageStudio() {
         setParams((prev) => ({ ...prev, seed: Math.floor(Math.random() * 2147483647) }));
     }, []);
 
+    const handleHistorySelect = useCallback((item: { inputs: Record<string, unknown> }) => {
+        if (item.inputs.prompt) {
+            setPrompt(String(item.inputs.prompt));
+        }
+    }, []);
+
     return (
         <div className="animate-fade-in">
-            <h1 className="text-3xl font-bold mb-2">🖼️ Image Studio</h1>
-            <p className="text-[var(--color-text-secondary)] mb-8">
-                图像生成工具 - 基于远程 Z-Image API
-            </p>
+            <StudioHeader
+                title="🖼️ Image Studio"
+                description="图像生成工具 - 基于远程 Z-Image API"
+            />
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-6">
                     <PromptInput
                         prompt={prompt}
-                        isRunning={isRunning}
-                        isOptimizing={isOptimizing}
-                        enhancePrompt={enhancePrompt}
                         onChange={setPrompt}
-                        onOptimize={handleOptimize}
-                        onEnhancePromptChange={setEnhancePrompt}
+                        disabled={isRunning}
                     />
 
                     <ParamsPanel
@@ -117,35 +129,50 @@ export function ImageStudio() {
 
                     <div className="flex gap-3">
                         {!isRunning ? (
-                            <button
+                            <SubmitButton
                                 onClick={handleSubmit}
                                 disabled={!prompt.trim()}
-                                className="btn-primary flex-1 py-3 text-lg"
+                                isLoading={isSubmitting}
+                                loadingText="提交中..."
+                                className="flex-1 py-3 text-lg"
                             >
                                 🎨 生成图像
-                            </button>
+                            </SubmitButton>
                         ) : (
-                            <button
+                            <SubmitButton
                                 onClick={handleCancel}
-                                className="btn-secondary flex-1 py-3 text-lg"
+                                variant="secondary"
+                                className="flex-1 py-3 text-lg"
                             >
                                 ✕ 取消生成
-                            </button>
+                            </SubmitButton>
                         )}
                     </div>
+
+                    <ResultDisplay
+                        job={job}
+                        status={status}
+                        progress={progress}
+                        isPolling={isPolling}
+                        error={error}
+                        imageUrl={imageUrl}
+                        statusMessage={statusMessage}
+                        onClear={handleClear}
+                    />
                 </div>
 
-                <ResultDisplay
-                    job={job}
-                    status={status}
-                    progress={progress}
-                    isPolling={isPolling}
-                    error={error}
-                    imageUrl={imageUrl}
-                    statusMessage={statusMessage}
-                    onClear={handleClear}
-                />
+                <div className="space-y-4">
+                    <JobHistoryPanel
+                        history={history}
+                        onSelect={handleHistorySelect}
+                        onRemove={removeItem}
+                        onClear={clearHistory}
+                        title="生成历史"
+                        emptyText="暂无生成记录"
+                    />
+                </div>
             </div>
         </div>
     );
 }
+

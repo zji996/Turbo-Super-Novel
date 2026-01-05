@@ -3,6 +3,7 @@ import { InputPanel } from '../components/InputPanel';
 import { ParamsPanel } from '../components/ParamsPanel';
 import { JobPanel } from '../components/JobPanel';
 import { ResultPanel } from '../components/ResultPanel';
+import { ErrorAlert, StudioHeader, SubmitButton } from '../components';
 import { useJobStorage, useJobPolling } from '../hooks';
 import { useCapabilityHealth } from '../hooks/useCapabilityHealth';
 import { createI2VJob } from '../services/videogen';
@@ -14,7 +15,6 @@ export function I2VStudio() {
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [prompt, setPrompt] = useState('');
-    const [enhancePrompt, setEnhancePrompt] = useState(false);
     const [params, setParams] = useState<I2VParams>(DEFAULT_I2V_PARAMS);
 
     // UI state
@@ -67,7 +67,7 @@ export function I2VStudio() {
         setError(null);
 
         try {
-            const response = await createI2VJob(imageFile, prompt.trim(), params, enhancePrompt);
+            const response = await createI2VJob(imageFile, prompt.trim(), params);
 
             // Create local job record
             const newJob: I2VJob = {
@@ -97,7 +97,7 @@ export function I2VStudio() {
         } finally {
             setIsSubmitting(false);
         }
-    }, [imageFile, prompt, params, enhancePrompt, imagePreview, addJob, reportFailure]);
+    }, [imageFile, prompt, params, imagePreview, addJob, reportFailure]);
 
     const handleRetry = useCallback((prevParams: I2VParams) => {
         // Set new random seed but keep other params
@@ -111,14 +111,11 @@ export function I2VStudio() {
     return (
         <div className="animate-fade-in">
             {/* Header */}
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold bg-gradient-to-r from-[var(--color-accent-primary)] to-[var(--color-accent-secondary)] bg-clip-text text-transparent">
-                    I2V Studio
-                </h1>
-                <p className="text-[var(--color-text-secondary)] mt-2">
-                    Transform images into stunning videos with AI
-                </p>
-            </div>
+            <StudioHeader
+                title="I2V Studio"
+                description="Transform images into stunning videos with AI"
+                titleClassName="text-3xl font-bold bg-gradient-to-r from-[var(--color-accent-primary)] to-[var(--color-accent-secondary)] bg-clip-text text-transparent"
+            />
 
             {/* Main Content */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -130,8 +127,6 @@ export function I2VStudio() {
                             prompt={prompt}
                             onImageChange={handleImageChange}
                             onPromptChange={handlePromptChange}
-                            enhancePrompt={enhancePrompt}
-                            onEnhancePromptChange={setEnhancePrompt}
                             disabled={isSubmitting}
                         />
                     </div>
@@ -143,30 +138,21 @@ export function I2VStudio() {
                     />
 
                     {/* Error message */}
-                    {error && (
-                        <div className="p-4 rounded-lg bg-[var(--color-error)]/10 border border-[var(--color-error)]/20">
-                            <p className="text-sm text-[var(--color-error)]">{error}</p>
-                        </div>
-                    )}
+                    <ErrorAlert message={error} />
 
                     {/* Submit button */}
-                    <button
+                    <SubmitButton
                         onClick={handleSubmit}
                         disabled={!canSubmit}
-                        className="btn-primary w-full py-4 text-lg"
+                        isLoading={isSubmitting}
+                        loadingText="Submitting..."
+                        className="w-full py-4 text-lg"
                     >
-                        {isSubmitting ? (
-                            <span className="inline-flex items-center gap-2">
-                                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                Submitting...
-                            </span>
-                        ) : (
-                            <span className="inline-flex items-center gap-2">
-                                <span>🎬</span>
-                                Generate Video
-                            </span>
-                        )}
-                    </button>
+                        <span className="inline-flex items-center gap-2">
+                            <span>🎬</span>
+                            Generate Video
+                        </span>
+                    </SubmitButton>
                 </div>
 
                 {/* Right Column - Jobs & Result */}

@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createTTSJobWithProfile, getTTSJobStatus } from '../services/tts';
+import type { BaseJobStatus, TTSJob } from '../types';
+import { isTerminalStatus } from '../types';
+import { useGenericJobPolling } from './useGenericJobPolling';
 
 export interface TTSJobRequest {
     text: string;
     profile_id: string;
-    enhance_prompt?: boolean;
 }
 
 export interface TTSJobState {
     jobId: string | null;
-    status: string | null;
+    status: BaseJobStatus | null;
     outputUrl: string | null;
     error: string | null;
     isSubmitting: boolean;
@@ -30,26 +32,60 @@ export function useTTSJob(
         isPolling: false,
     });
 
-    const intervalRef = useRef<number | null>(null);
-    const stateRef = useRef(state);
+    const { startPolling, stopPolling, isPolling } = useGenericJobPolling<TTSJob>({
+        pollingInterval,
+        getStatus: getTTSJobStatus,
+        getJobStatus: (job) => job.status ?? job.db?.status ?? 'PENDING',
+        isTerminal: (status) => isTerminalStatus(status),
+        onStatusUpdate: (job) => {
+            const nextStatus = (job.status ?? job.db?.status ?? 'PENDING') as BaseJobStatus;
+            const outputUrl = job.output_url || null;
+            setState((prev) => ({
+                ...prev,
+                status: nextStatus,
+                outputUrl,
+            }));
+        },
+        onComplete: (job) => {
+            const finalStatus = (job.status ?? job.db?.status ?? 'PENDING') as BaseJobStatus;
+            const outputUrl = job.output_url || null;
 
-    useEffect(() => {
-        stateRef.current = state;
-    }, [state]);
+            const finalState: TTSJobState = {
+                jobId: job.job_id,
+                status: finalStatus,
+                outputUrl,
+                error: job.error || null,
+                isSubmitting: false,
+                isPolling: false,
+            };
+            setState(finalState);
+
+            if (finalStatus === 'SUCCESS' || finalStatus === 'SUCCEEDED') {
+                onSuccess?.(finalState);
+            } else if (finalStatus === 'FAILURE' || finalStatus === 'FAILED') {
+                onError?.(new Error(job.error || 'TTS job failed'));
+            }
+        },
+        onError: (error, jobId) => {
+            console.error(`Polling error (job ${jobId}):`, error);
+        },
+    });
 
     const submit = useCallback(
         async (request: TTSJobRequest) => {
             setState((prev) => ({ ...prev, isSubmitting: true, error: null }));
             try {
                 const resp = await createTTSJobWithProfile(request);
-                setState({
+                setState((prev) => ({
+                    ...prev,
                     jobId: resp.job_id,
                     status: 'SUBMITTED',
                     outputUrl: null,
                     error: null,
                     isSubmitting: false,
                     isPolling: true,
-                });
+                }));
+                startPolling(resp.job_id);
             } catch (e) {
                 const error = e instanceof Error ? e : new Error(String(e));
                 setState((prev) => ({
@@ -60,16 +96,13 @@ export function useTTSJob(
                 onError?.(error);
             }
         },
-        [onError]
+        [onError, startPolling]
     );
 
     const cancel = useCallback(() => {
-        if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
-        }
+        stopPolling();
         setState((prev) => ({ ...prev, isPolling: false }));
-    }, []);
+    }, [stopPolling]);
 
     const reset = useCallback(() => {
         cancel();
@@ -84,49 +117,8 @@ export function useTTSJob(
     }, [cancel]);
 
     useEffect(() => {
-        if (!state.jobId || !state.isPolling) return;
-
-        const jobId = state.jobId;
-
-        const poll = async () => {
-            try {
-                const data = await getTTSJobStatus(jobId);
-                const status = data.status || data.db?.status || 'PENDING';
-                const outputUrl = data.output_url || null;
-
-                const nextState: TTSJobState = {
-                    ...stateRef.current,
-                    jobId,
-                    status,
-                    outputUrl,
-                };
-
-                stateRef.current = nextState;
-                setState(nextState);
-
-                if (['SUCCEEDED', 'FAILED'].includes(status)) {
-                    cancel();
-                    if (status === 'SUCCEEDED') {
-                        onSuccess?.(nextState);
-                    } else {
-                        onError?.(new Error(data.error || 'TTS job failed'));
-                    }
-                }
-            } catch (e) {
-                console.error('Polling error:', e);
-            }
-        };
-
-        intervalRef.current = window.setInterval(poll, pollingInterval);
-        poll();
-
-        return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-                intervalRef.current = null;
-            }
-        };
-    }, [state.jobId, state.isPolling, pollingInterval, cancel, onSuccess, onError]);
+        setState((prev) => ({ ...prev, isPolling }));
+    }, [isPolling]);
 
     return { state, submit, cancel, reset };
 }

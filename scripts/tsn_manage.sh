@@ -466,6 +466,8 @@ usage() {
   scripts/tsn_manage.sh stop    [api|worker|web|all]
   scripts/tsn_manage.sh restart [api|worker|web|all]
   scripts/tsn_manage.sh status
+  scripts/tsn_manage.sh logs    [api|worker|web] [lines]
+  scripts/tsn_manage.sh health
 
 GPU 模式 (最重要的配置):
   CAP_GPU_MODE=resident  模型常驻（直到切换 capability）
@@ -488,6 +490,32 @@ GPU 模式 (最重要的配置):
   API_PORT=8000       API 端口
   WEB_PORT=5173       前端端口
 EOF
+}
+
+logs_service() {
+  local name="$1"
+  local lines="${2:-100}"
+  local log_file="$LOG_DIR/$name.log"
+  if [[ ! -f "$log_file" ]]; then
+    echo "Log file not found: $log_file" >&2
+    return 1
+  fi
+  tail -n "$lines" "$log_file"
+}
+
+health_check() {
+  local api_host="${API_HOST:-localhost}"
+  local api_port="${API_PORT:-8000}"
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "missing command: curl" >&2
+    return 127
+  fi
+  echo "Checking API health..."
+  if curl -sf "http://$api_host:$api_port/health" >/dev/null 2>&1; then
+    echo "API: healthy"
+  else
+    echo "API: unhealthy or unreachable"
+  fi
 }
 
 main() {
@@ -568,6 +596,15 @@ main() {
       status_service "api"
       status_service "worker"
       status_service "web"
+      ;;
+    logs)
+      local log_target="${2:-api}"
+      local lines="${3:-100}"
+      logs_service "$log_target" "$lines"
+      ;;
+    health)
+      apply_runtime_defaults
+      health_check
       ;;
     *)
       usage

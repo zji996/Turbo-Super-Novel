@@ -1,6 +1,11 @@
 export { useJobPolling } from './useJobPolling';
 export { useJobStorage } from './useJobStorage';
+export { useGenericJobPolling } from './useGenericJobPolling';
 export { useImageGenJob } from './useImageGenJob';
 export { useTTSJob } from './useTTSJob';
+export { useLLMSession } from './useLLMSession';
+export { useJobHistory } from './useJobHistory';
+export type { JobHistoryItem } from './useJobHistory';
+export { usePromptOptimizer } from './usePromptOptimizer';
 export { CapabilityHealthProvider } from './CapabilityHealthProvider';
 export { useCapabilityHealth } from './useCapabilityHealth';

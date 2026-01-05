@@ -1,12 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
+import { PromptOptimizeButton } from './PromptOptimizeButton';
 
 interface InputPanelProps {
     onImageChange: (file: File | null, preview: string | null) => void;
     onPromptChange: (prompt: string) => void;
     imagePreview: string | null;
     prompt: string;
-    enhancePrompt?: boolean;
-    onEnhancePromptChange?: (value: boolean) => void;
     disabled?: boolean;
 }
 
@@ -15,8 +14,6 @@ export function InputPanel({
     onPromptChange,
     imagePreview,
     prompt,
-    enhancePrompt = false,
-    onEnhancePromptChange,
     disabled = false,
 }: InputPanelProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -152,21 +149,19 @@ export function InputPanel({
                     rows={4}
                     className="input resize-none"
                 />
-                <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                    Be specific about motion and camera movement
-                </p>
-                {onEnhancePromptChange && (
-                    <label className="mt-3 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-                        <input
-                            type="checkbox"
-                            checked={enhancePrompt}
-                            onChange={(e) => onEnhancePromptChange(e.target.checked)}
-                            disabled={disabled}
-                        />
-                        提交时 AI 优化提示词
-                    </label>
-                )}
+                <div className="flex items-center justify-between mt-2">
+                    <PromptOptimizeButton
+                        text={prompt}
+                        onOptimized={onPromptChange}
+                        disabled={disabled}
+                        size="sm"
+                    />
+                    <p className="text-xs text-[var(--color-text-muted)]">
+                        Be specific about motion and camera movement
+                    </p>
+                </div>
             </div>
         </div>
     );
 }
+

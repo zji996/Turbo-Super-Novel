@@ -1,12 +1,14 @@
+import type { BaseJobStatus } from './common';
+
 export interface TTSJob {
     job_id: string;
-    status: string;
+    status: BaseJobStatus | null;
     output_url?: string;
     error?: string;
     audio_duration_seconds?: number;
     provider_type?: string;
     db?: {
-        status?: string;
+        status?: BaseJobStatus | null;
         error?: string | null;
     };
 }
@@ -38,5 +40,4 @@ export interface CreateSpeakerProfileRequest {
 export interface CreateTTSJobWithProfileRequest {
     text: string;
     profile_id: string;
-    enhance_prompt?: boolean;
 }

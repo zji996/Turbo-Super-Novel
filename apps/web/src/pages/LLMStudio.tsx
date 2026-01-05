@@ -1,57 +1,62 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage } from '../services/llm';
 import { chatLLM, firstAssistantText } from '../services/llm';
 import { useCapabilityHealth } from '../hooks/useCapabilityHealth';
-
-const STORAGE_KEY = 'tsn_llm_studio_v1';
-
-interface StoredState {
-    systemPrompt: string;
-    model: string;
-    temperature: number;
-    maxTokens: number;
-    messages: ChatMessage[];
-}
-
-function loadState(): StoredState | null {
-    try {
-        const raw = sessionStorage.getItem(STORAGE_KEY);
-        if (!raw) return null;
-        return JSON.parse(raw) as StoredState;
-    } catch {
-        return null;
-    }
-}
+import { ErrorAlert, StudioHeader, SubmitButton } from '../components';
+import { useLLMSession } from '../hooks/useLLMSession';
 
 export function LLMStudio() {
     const { reportFailure, reportSuccess } = useCapabilityHealth();
 
-    const stored = useMemo(() => loadState(), []);
-
-    const [systemPrompt, setSystemPrompt] = useState(stored?.systemPrompt || '');
-    const [model, setModel] = useState(stored?.model || '');
-    const [temperature, setTemperature] = useState(stored?.temperature ?? 0.7);
-    const [maxTokens, setMaxTokens] = useState(stored?.maxTokens ?? 1024);
-    const [messages, setMessages] = useState<ChatMessage[]>(stored?.messages || []);
+    const {
+        systemPrompt,
+        setSystemPrompt,
+        model,
+        setModel,
+        temperature,
+        setTemperature,
+        maxTokens,
+        setMaxTokens,
+        messages,
+        setMessages,
+        clearMessages,
+    } = useLLMSession();
 
     const [input, setInput] = useState('');
     const [isSending, setIsSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+    const messagesEndRef = useRef<HTMLDivElement | null>(null);
+    const shouldAutoScrollRef = useRef(true);
+
     useEffect(() => {
-        const next: StoredState = { systemPrompt, model, temperature, maxTokens, messages };
-        try {
-            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        } catch {
-            // ignore
-        }
-    }, [systemPrompt, model, temperature, maxTokens, messages]);
+        const el = messagesContainerRef.current;
+        if (!el) return;
+
+        const onScroll = () => {
+            const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+            shouldAutoScrollRef.current = distanceToBottom < 80;
+        };
+
+        el.addEventListener('scroll', onScroll);
+        onScroll();
+
+        return () => {
+            el.removeEventListener('scroll', onScroll);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!shouldAutoScrollRef.current) return;
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages.length]);
 
     const clear = useCallback(() => {
-        setMessages([]);
+        clearMessages();
         setError(null);
         setInput('');
-    }, []);
+    }, [clearMessages]);
 
     const send = useCallback(async () => {
         const userText = input.trim();
@@ -85,24 +90,28 @@ export function LLMStudio() {
         } finally {
             setIsSending(false);
         }
-    }, [input, isSending, messages, systemPrompt, model, temperature, maxTokens, reportFailure, reportSuccess]);
+    }, [input, isSending, messages, systemPrompt, model, temperature, maxTokens, reportFailure, reportSuccess, setMessages]);
 
     return (
         <div className="animate-fade-in">
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-3xl font-bold">💬 LLM Studio</h1>
-                    <p className="text-[var(--color-text-secondary)] mt-1">简单对话界面 · 支持 system prompt 与参数调节</p>
-                </div>
-                <button onClick={clear} className="btn-secondary">
-                    清空对话
-                </button>
-            </div>
+            <StudioHeader
+                title="💬 LLM Studio"
+                description="简单对话界面 · 支持 system prompt 与参数调节"
+                action={
+                    <button onClick={clear} className="btn-secondary">
+                        清空对话
+                    </button>
+                }
+                className="mb-6"
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-4">
                     <div className="card">
-                        <div className="h-[520px] overflow-y-auto space-y-3">
+                        <div
+                            ref={messagesContainerRef}
+                            className="h-[520px] overflow-y-auto space-y-3"
+                        >
                             {messages.length === 0 ? (
                                 <div className="text-sm text-[var(--color-text-muted)]">暂无对话，输入内容开始。</div>
                             ) : (
@@ -127,14 +136,11 @@ export function LLMStudio() {
                                     </div>
                                 ))
                             )}
+                            <div ref={messagesEndRef} />
                         </div>
                     </div>
 
-                    {error && (
-                        <div className="p-4 rounded-lg bg-[var(--color-error)]/10 border border-[var(--color-error)]/20">
-                            <p className="text-sm text-[var(--color-error)]">{error}</p>
-                        </div>
-                    )}
+                    <ErrorAlert message={error} />
 
                     <div className="card">
                         <div className="flex gap-3">
@@ -144,13 +150,15 @@ export function LLMStudio() {
                                 placeholder="输入消息..."
                                 className="flex-1 h-20 p-3 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] resize-none"
                             />
-                            <button
+                            <SubmitButton
                                 onClick={send}
                                 disabled={!input.trim() || isSending}
-                                className="btn-primary px-5"
+                                isLoading={isSending}
+                                loadingText="发送中..."
+                                className="px-5"
                             >
-                                {isSending ? '发送中...' : '发送'}
-                            </button>
+                                发送
+                            </SubmitButton>
                         </div>
                         <div className="text-xs text-[var(--color-text-muted)] mt-2">
                             {input.length} 字符
@@ -207,4 +215,3 @@ export function LLMStudio() {
         </div>
     );
 }
-

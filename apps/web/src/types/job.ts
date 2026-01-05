@@ -1,19 +1,27 @@
+import type { BaseJobStatus } from './common';
+
 /** Job types supported by the platform */
 export type JobType = 'i2v' | 't2v';
 
 /** Celery task status */
-export type CeleryStatus = 'PENDING' | 'STARTED' | 'SUCCESS' | 'FAILURE';
+export type CeleryStatus = Extract<
+    BaseJobStatus,
+    'PENDING' | 'STARTED' | 'SUCCESS' | 'FAILURE'
+>;
 
 /** Database job status (more detailed) */
 export type DBStatus =
-    | 'CREATED'
-    | 'SUBMITTED'
-    | 'STARTED'
-    | 'DOWNLOADED'
-    | 'RUNNING'
-    | 'UPLOADED'
-    | 'SUCCEEDED'
-    | 'FAILED';
+    | Extract<
+          BaseJobStatus,
+          | 'CREATED'
+          | 'SUBMITTED'
+          | 'STARTED'
+          | 'DOWNLOADED'
+          | 'RUNNING'
+          | 'UPLOADED'
+          | 'SUCCEEDED'
+          | 'FAILED'
+      >;
 
 /** I2V job parameters */
 export interface I2VParams {

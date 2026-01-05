@@ -1,11 +1,9 @@
-export type ImageGenStatus =
-    | 'PENDING'
-    | 'STARTED'
-    | 'PROGRESS'
-    | 'SUCCESS'
-    | 'FAILURE'
-    | 'REVOKED'
-    | 'CANCELLED';
+import type { BaseJobStatus } from './common';
+
+export type ImageGenStatus = Extract<
+    BaseJobStatus,
+    'PENDING' | 'STARTED' | 'PROGRESS' | 'SUCCESS' | 'FAILURE' | 'REVOKED' | 'CANCELLED'
+>;
 
 export interface ImageGenJob {
     job_id: string;
@@ -19,7 +17,6 @@ export interface ImageGenJob {
 
 export interface ImageGenParams {
     prompt: string;
-    enhance_prompt?: boolean;
     width?: number;
     height?: number;
     num_inference_steps?: number;

@@ -23,10 +23,19 @@ from db import (
 )
 from s3 import ensure_bucket_exists, presigned_get_url, s3_bucket_name, s3_client
 from schemas import VideoGenJobResponse
+from remote_errors import handle_remote_errors
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/videogen", tags=["videogen"])
+
+
+@handle_remote_errors
+async def _enhance_prompt(prompt: str) -> str:
+    llm = get_capability_router("llm")
+    if not hasattr(llm, "enhance_prompt"):
+        raise HTTPException(status_code=503, detail="LLM provider does not support enhance_prompt")
+    return await llm.enhance_prompt(str(prompt), context="video_generation")
 
 
 class JobObjectRef(BaseModel):
@@ -142,16 +151,7 @@ async def create_wan22_i2v_job(
     if not prompt_final:
         raise HTTPException(status_code=422, detail="prompt cannot be empty")
     if enhance_prompt:
-        try:
-            llm = get_capability_router("llm")
-            if not hasattr(llm, "enhance_prompt"):
-                raise RuntimeError("LLM provider does not support enhance_prompt")
-            prompt_final = await llm.enhance_prompt(prompt_final, context="video_generation")
-        except Exception as exc:
-            raise HTTPException(
-                status_code=503,
-                detail=f"LLM prompt enhancement unavailable: {exc}",
-            ) from exc
+        prompt_final = await _enhance_prompt(prompt_final)
 
     job_uuid = uuid4()
     job_id = str(job_uuid)

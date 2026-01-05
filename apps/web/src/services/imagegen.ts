@@ -6,8 +6,9 @@
  */
 
 import type { ImageGenJob, ImageGenParams, ImageGenStatus } from '../types';
+import { isPendingStatus, isTerminalStatus } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+import { apiGet, apiPost } from './client';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -38,7 +39,6 @@ export async function createImageGenJob(
     params: ImageGenParams
 ): Promise<ImageGenJob> {
     const body: Record<string, unknown> = { prompt: params.prompt };
-    if (params.enhance_prompt !== undefined) body.enhance_prompt = params.enhance_prompt;
     if (params.width !== undefined) body.width = params.width;
     if (params.height !== undefined) body.height = params.height;
     if (params.num_inference_steps !== undefined)
@@ -46,33 +46,14 @@ export async function createImageGenJob(
     if (params.guidance_scale !== undefined) body.guidance_scale = params.guidance_scale;
     if (params.seed !== undefined) body.seed = params.seed;
     if (params.negative_prompt !== undefined) body.negative_prompt = params.negative_prompt;
-
-    const resp = await fetch(`${API_BASE}/v1/imagegen/jobs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-
-    if (!resp.ok) {
-        const error = await resp.text();
-        throw new Error(`Failed to create imagegen job: ${error}`);
-    }
-
-    return resp.json();
+    return apiPost<ImageGenJob>('/v1/imagegen/jobs', body);
 }
 
 /**
  * Get the status of an image generation job.
  */
 export async function getImageGenJobStatus(jobId: string): Promise<ImageGenJob> {
-    const resp = await fetch(`${API_BASE}/v1/imagegen/jobs/${jobId}`);
-
-    if (!resp.ok) {
-        const error = await resp.text();
-        throw new Error(`Failed to get imagegen job status: ${error}`);
-    }
-
-    return resp.json();
+    return apiGet<ImageGenJob>(`/v1/imagegen/jobs/${jobId}`);
 }
 
 /**
@@ -81,16 +62,9 @@ export async function getImageGenJobStatus(jobId: string): Promise<ImageGenJob> 
 export async function cancelImageGenJob(
     jobId: string
 ): Promise<{ job_id: string; status: string; message: string }> {
-    const resp = await fetch(`${API_BASE}/v1/imagegen/jobs/${jobId}/cancel`, {
-        method: 'POST',
-    });
-
-    if (!resp.ok) {
-        const error = await resp.text();
-        throw new Error(`Failed to cancel imagegen job: ${error}`);
-    }
-
-    return resp.json();
+    return apiPost<{ job_id: string; status: string; message: string }>(
+        `/v1/imagegen/jobs/${jobId}/cancel`
+    );
 }
 
 /**
@@ -100,16 +74,9 @@ export async function getImageGenHistory(
     limit = 20,
     offset = 0
 ): Promise<ImageGenHistoryItem[]> {
-    const resp = await fetch(
-        `${API_BASE}/v1/imagegen/history?limit=${limit}&offset=${offset}`
+    return apiGet<ImageGenHistoryItem[]>(
+        `/v1/imagegen/history?limit=${limit}&offset=${offset}`
     );
-
-    if (!resp.ok) {
-        const error = await resp.text();
-        throw new Error(`Failed to get imagegen history: ${error}`);
-    }
-
-    return resp.json();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,14 +87,14 @@ export async function getImageGenHistory(
  * Check if a job is in a terminal state (completed or failed).
  */
 export function isJobTerminal(status: ImageGenStatus): boolean {
-    return ['SUCCESS', 'FAILURE', 'REVOKED', 'CANCELLED'].includes(status);
+    return isTerminalStatus(status);
 }
 
 /**
  * Check if a job is in a pending/running state.
  */
 export function isJobPending(status: ImageGenStatus): boolean {
-    return ['PENDING', 'STARTED', 'PROGRESS'].includes(status);
+    return isPendingStatus(status);
 }
 
 /**

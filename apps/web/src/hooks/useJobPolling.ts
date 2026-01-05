@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { I2VJob, CeleryStatus, DBStatus } from '../types';
+import { isTerminalStatus } from '../types';
 import { getJobStatus } from '../services/videogen';
 
 interface UseJobPollingOptions {
@@ -34,8 +35,29 @@ export function useJobPolling(
     const startTimeRef = useRef<Map<string, number>>(new Map());
     const [isPolling, setIsPolling] = useState(false);
 
+    const stopPolling = useCallback((jobId: string) => {
+        const timeout = pollingRef.current.get(jobId);
+        if (timeout) {
+            clearTimeout(timeout);
+            pollingRef.current.delete(jobId);
+        }
+        startTimeRef.current.delete(jobId);
+        setIsPolling(pollingRef.current.size > 0);
+    }, []);
+
     const pollJob = useCallback(async (job: I2VJob) => {
         const startTime = startTimeRef.current.get(job.job_id) || Date.now();
+
+        const scheduleNextPoll = (jobId: string, nextJob: I2VJob, interval: number) => {
+            const existing = pollingRef.current.get(jobId);
+            if (existing) {
+                clearTimeout(existing);
+            }
+
+            const timeout = setTimeout(() => pollJob(nextJob), interval);
+            pollingRef.current.set(jobId, timeout);
+            setIsPolling(pollingRef.current.size > 0);
+        };
 
         // Check timeout
         if (Date.now() - startTime > MAX_POLLING_DURATION) {
@@ -64,7 +86,7 @@ export function useJobPolling(
             onStatusUpdate?.(updatedJob);
 
             // Check if job is complete
-            if (response.status === 'SUCCESS' || response.status === 'FAILURE') {
+            if (isTerminalStatus(response.status)) {
                 onComplete?.(updatedJob);
                 stopPolling(job.job_id);
                 return;
@@ -83,28 +105,7 @@ export function useJobPolling(
             // Continue polling on error (might be temporary network issue)
             scheduleNextPoll(job.job_id, job, POLLING_INTERVALS.IDLE);
         }
-    }, [updateJob, onStatusUpdate, onComplete, onError]);
-
-    const scheduleNextPoll = useCallback((jobId: string, job: I2VJob, interval: number) => {
-        const existing = pollingRef.current.get(jobId);
-        if (existing) {
-            clearTimeout(existing);
-        }
-
-        const timeout = setTimeout(() => pollJob(job), interval);
-        pollingRef.current.set(jobId, timeout);
-        setIsPolling(pollingRef.current.size > 0);
-    }, [pollJob]);
-
-    const stopPolling = useCallback((jobId: string) => {
-        const timeout = pollingRef.current.get(jobId);
-        if (timeout) {
-            clearTimeout(timeout);
-            pollingRef.current.delete(jobId);
-        }
-        startTimeRef.current.delete(jobId);
-        setIsPolling(pollingRef.current.size > 0);
-    }, []);
+    }, [updateJob, onStatusUpdate, onComplete, onError, stopPolling]);
 
     const startPolling = useCallback((job: I2VJob) => {
         if (!startTimeRef.current.has(job.job_id)) {
@@ -116,16 +117,17 @@ export function useJobPolling(
 
     // Cleanup on unmount
     useEffect(() => {
+        const pollingMap = pollingRef.current;
         return () => {
-            pollingRef.current.forEach((timeout) => clearTimeout(timeout));
-            pollingRef.current.clear();
+            pollingMap.forEach((timeout) => clearTimeout(timeout));
+            pollingMap.clear();
         };
     }, []);
 
     // Auto-start polling for incomplete jobs
     useEffect(() => {
         jobs.forEach((job) => {
-            const isIncomplete = job.status !== 'SUCCESS' && job.status !== 'FAILURE';
+            const isIncomplete = !isTerminalStatus(job.status);
             const isNotPolling = !pollingRef.current.has(job.job_id);
 
             if (isIncomplete && isNotPolling) {

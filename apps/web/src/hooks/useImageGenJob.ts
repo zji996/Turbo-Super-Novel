@@ -5,15 +5,15 @@
  * including submission, polling, and cancellation.
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import {
     createImageGenJob,
     getImageGenJobStatus,
     cancelImageGenJob,
-    isJobTerminal,
-    isJobPending,
 } from '../services/imagegen';
+import { isPendingStatus } from '../types';
 import type { ImageGenJob, ImageGenParams, ImageGenStatus } from '../types';
+import { useGenericJobPolling } from './useGenericJobPolling';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -75,88 +75,38 @@ export function useImageGenJob(
 
     const [job, setJob] = useState<ImageGenJob | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isPolling, setIsPolling] = useState(false);
 
-    const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const startTimeRef = useRef<number | null>(null);
-
-    // Cleanup polling on unmount
-    useEffect(() => {
-        return () => {
-            if (pollingRef.current) {
-                clearTimeout(pollingRef.current);
-            }
-        };
-    }, []);
-
-    const stopPolling = useCallback(() => {
-        if (pollingRef.current) {
-            clearTimeout(pollingRef.current);
-            pollingRef.current = null;
-        }
-        startTimeRef.current = null;
-        setIsPolling(false);
-    }, []);
-
-    const pollJobStatus = useCallback(
-        async (jobId: string) => {
-            // Check timeout
-            if (
-                startTimeRef.current &&
-                Date.now() - startTimeRef.current > maxPollingDuration
-            ) {
-                console.warn(`ImageGen job ${jobId} polling timeout`);
-                const timeoutJob: ImageGenJob = {
-                    job_id: jobId,
-                    status: 'FAILURE',
-                    error: '轮询超时 - 任务可能仍在后台运行',
-                };
-                setJob(timeoutJob);
-                stopPolling();
-                onError?.(new Error('Polling timeout'), timeoutJob);
-                return;
-            }
-
-            try {
-                const updatedJob = await getImageGenJobStatus(jobId);
-                setJob(updatedJob);
-                onStatusUpdate?.(updatedJob);
-
-                if (isJobTerminal(updatedJob.status)) {
-                    stopPolling();
-                    if (updatedJob.status === 'SUCCESS') {
-                        onSuccess?.(updatedJob);
-                    } else if (updatedJob.status === 'FAILURE') {
-                        onError?.(new Error(updatedJob.error || 'Job failed'), updatedJob);
-                    }
-                } else {
-                    // Schedule next poll
-                    pollingRef.current = setTimeout(
-                        () => pollJobStatus(jobId),
-                        pollingInterval
-                    );
-                }
-            } catch (error) {
-                console.error(`Error polling imagegen job ${jobId}:`, error);
-                // Continue polling on error (might be temporary network issue)
-                pollingRef.current = setTimeout(
-                    () => pollJobStatus(jobId),
-                    pollingInterval * 2
-                );
+    const { startPolling, stopPolling, isPolling } = useGenericJobPolling<ImageGenJob>({
+        pollingInterval,
+        maxPollingDuration,
+        getStatus: getImageGenJobStatus,
+        getJobStatus: (j) => j.status,
+        onStatusUpdate: (updatedJob) => {
+            setJob(updatedJob);
+            onStatusUpdate?.(updatedJob);
+        },
+        onComplete: (finalJob) => {
+            if (finalJob.status === 'SUCCESS') {
+                onSuccess?.(finalJob);
+            } else if (finalJob.status === 'FAILURE') {
+                onError?.(new Error(finalJob.error || 'Job failed'), finalJob);
             }
         },
-        [pollingInterval, maxPollingDuration, stopPolling, onSuccess, onError, onStatusUpdate]
-    );
-
-    const startPolling = useCallback(
-        (jobId: string) => {
-            stopPolling();
-            startTimeRef.current = Date.now();
-            setIsPolling(true);
-            pollJobStatus(jobId);
+        onTimeout: (jobId) => {
+            console.warn(`ImageGen job ${jobId} polling timeout`);
+            const timeoutJob: ImageGenJob = {
+                job_id: jobId,
+                status: 'FAILURE',
+                error: '轮询超时 - 任务可能仍在后台运行',
+            };
+            setJob(timeoutJob);
+            onError?.(new Error('Polling timeout'), timeoutJob);
         },
-        [stopPolling, pollJobStatus]
-    );
+        onError: (error, jobId) => {
+            console.error(`Error polling imagegen job ${jobId}:`, error);
+        },
+        errorRetryInterval: pollingInterval * 2,
+    });
 
     const submit = useCallback(
         async (prompt: string, params?: Omit<ImageGenParams, 'prompt'>): Promise<ImageGenJob | null> => {
@@ -167,7 +117,7 @@ export function useImageGenJob(
                 setJob(newJob);
 
                 // Start polling if job is pending
-                if (isJobPending(newJob.status)) {
+                if (isPendingStatus(newJob.status)) {
                     startPolling(newJob.job_id);
                 }
 

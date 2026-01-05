@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from capabilities import get_capability_router
 from schemas import ImageGenJobResponse
+from remote_errors import handle_remote_errors
 
 router = APIRouter(prefix="/v1/imagegen", tags=["imagegen"])
 
@@ -80,6 +80,7 @@ async def _maybe_enhance_prompt(prompt: str, enabled: bool) -> str:
 
 
 @router.post("/jobs", response_model=ImageGenJobResponse)
+@handle_remote_errors
 async def create_imagegen_job(request: CreateImageGenJobRequest) -> dict:
     """Create an image generation job.
 
@@ -103,64 +104,31 @@ async def create_imagegen_job(request: CreateImageGenJobRequest) -> dict:
         kwargs["negative_prompt"] = request.negative_prompt
 
     prompt = await _maybe_enhance_prompt(request.prompt, request.enhance_prompt)
-
-    try:
-        return await cap.submit_imagegen_job(prompt=prompt, **kwargs)
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=int(exc.response.status_code),
-            detail=(exc.response.text or str(exc)),
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return await cap.submit_imagegen_job(prompt=prompt, **kwargs)
 
 
 @router.get("/jobs/{job_id}", response_model=ImageGenJobResponse)
+@handle_remote_errors
 async def get_imagegen_job(job_id: str) -> dict:
     """Get the status of an image generation job."""
     cap = _get_remote_provider()
-
-    try:
-        return await cap.get_imagegen_job(job_id)
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=int(exc.response.status_code),
-            detail=(exc.response.text or str(exc)),
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return await cap.get_imagegen_job(job_id)
 
 
 @router.post("/jobs/{job_id}/cancel")
+@handle_remote_errors
 async def cancel_imagegen_job(job_id: str) -> dict:
     """Cancel an image generation job."""
     cap = _get_remote_provider()
-
-    try:
-        return await cap.cancel_imagegen_job(job_id)
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=int(exc.response.status_code),
-            detail=(exc.response.text or str(exc)),
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return await cap.cancel_imagegen_job(job_id)
 
 
 @router.get("/history")
+@handle_remote_errors
 async def get_imagegen_history(
     limit: int = Query(default=20, ge=1, le=100, description="Number of items to return"),
     offset: int = Query(default=0, ge=0, description="Offset for pagination"),
 ) -> list:
     """Get image generation history from the remote Z-Image API."""
     cap = _get_remote_provider()
-
-    try:
-        return await cap.get_imagegen_history(limit=limit, offset=offset)
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=int(exc.response.status_code),
-            detail=(exc.response.text or str(exc)),
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return await cap.get_imagegen_history(limit=limit, offset=offset)

@@ -1,4 +1,5 @@
 import type { I2VJob } from '../types';
+import { isPendingStatus } from '../types';
 import { formatDistanceToNow } from '../utils/time';
 
 interface JobPanelProps {
@@ -51,7 +52,7 @@ interface JobCardProps {
 
 function JobCard({ job, isSelected, onSelect, onRemove }: JobCardProps) {
     const getStatusBadge = () => {
-        const isRunning = job.status === 'STARTED' || job.status === 'PENDING';
+        const isRunning = isPendingStatus(job.status);
         const isSuccess = job.status === 'SUCCESS';
         const isFailure = job.status === 'FAILURE';
 

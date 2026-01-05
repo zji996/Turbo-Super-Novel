@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+import { apiPost } from './client';
 
 export type ChatRole = 'system' | 'user' | 'assistant';
 
@@ -15,13 +15,7 @@ export interface ChatCompletionResponse {
 }
 
 export async function optimizePrompt(text: string): Promise<string> {
-    const resp = await fetch(`${API_BASE}/v1/llm/optimize-prompt`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-    });
-    if (!resp.ok) throw new Error('Failed to optimize prompt');
-    const data = await resp.json();
+    const data = await apiPost<{ optimized: string }>('/v1/llm/optimize-prompt', { text });
     return data.optimized;
 }
 
@@ -29,23 +23,12 @@ export async function chatLLM(
     messages: ChatMessage[],
     opts: { model?: string; temperature?: number; max_tokens?: number } = {}
 ): Promise<ChatCompletionResponse> {
-    const resp = await fetch(`${API_BASE}/v1/llm/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            messages,
-            model: opts.model || undefined,
-            temperature: typeof opts.temperature === 'number' ? opts.temperature : undefined,
-            max_tokens: typeof opts.max_tokens === 'number' ? opts.max_tokens : undefined,
-        }),
+    return apiPost<ChatCompletionResponse>('/v1/llm/chat', {
+        messages,
+        model: opts.model || undefined,
+        temperature: typeof opts.temperature === 'number' ? opts.temperature : undefined,
+        max_tokens: typeof opts.max_tokens === 'number' ? opts.max_tokens : undefined,
     });
-
-    if (!resp.ok) {
-        const error = await resp.text();
-        throw new Error(`LLM chat failed: ${error}`);
-    }
-
-    return resp.json();
 }
 
 export function firstAssistantText(payload: ChatCompletionResponse): string | null {

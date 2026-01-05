@@ -1,4 +1,5 @@
 import type { I2VJob, I2VParams } from '../types';
+import { isPendingStatus } from '../types';
 
 interface ResultPanelProps {
     job: I2VJob | null;
@@ -19,7 +20,7 @@ export function ResultPanel({ job, onRetry }: ResultPanelProps) {
         );
     }
 
-    const isRunning = job.status === 'PENDING' || job.status === 'STARTED';
+    const isRunning = isPendingStatus(job.status);
     const isSuccess = job.status === 'SUCCESS' && job.video_url;
     const isFailure = job.status === 'FAILURE' || job.error;
     const durationSeconds = Number.isFinite(job.params.duration_seconds) ? job.params.duration_seconds : 5;
